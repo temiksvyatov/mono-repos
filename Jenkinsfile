@@ -1,107 +1,126 @@
-@Library('nmf-ci-lib@feature') _
+properties([
+    parameters([
+        string(name: 'IMAGE', defaultValue: 'all', description: 'Image to build (e.g., alpine, golang)'),
+        string(name: 'REGISTRY_URL', defaultValue: 'https://docker-mf-middle-dev-local.nexign.com', description: 'Docker registry URL'),
+        string(name: 'REGISTRY_CREDENTIALS', defaultValue: 'registry-user-password', description: 'Registry credentials ID'),
+        string(name: 'TELEGRAM_BOT_TOKEN_ID', defaultValue: 'telegram-bot-token', description: 'Telegram bot token credentials ID'),
+        string(name: 'TELEGRAM_CHAT_ID', defaultValue: 'telegram-chat-id', description: 'Telegram chat ID credentials ID')
+    ])
+])
+
+// Основные параметры
+def IMAGES = [
+    'alpine', 'golang', 'node/16', 'node/18', 'node/20',
+    'java/11/maven', 'java/11/gradle', 'java/17/maven', 'java/17/gradle', 'java/21/maven', 'java/21/gradle',
+    'python/310', 'python/311', 'nginx', 'jre/11', 'jre/17', 'jre/21'
+]
+def IMAGES_DIR = 'images'
+def REGISTRY_PATH_TEMPLATE = 'microservices/infra/runtime/base'
+def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
+def IMAGE_TAG = 'latest'
+
+def sendTelegramNotification(String stage, Map results) {
+    withCredentials([
+        string(credentialsId: params.TELEGRAM_BOT_TOKEN_ID, variable: 'TELEGRAM_BOT_TOKEN'),
+        string(credentialsId: params.TELEGRAM_CHAT_ID, variable: 'TELEGRAM_CHAT_ID')
+    ]) {
+        def message = "📢 ${stage} Results:\n"
+        results.each { img, status ->
+            message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
+        }
+        if (results.any { !it.value }) {
+            message += "Check Jenkins job: ${env.JOB_URL}"
+        }
+        sh """
+            curl -s -X POST https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage \
+            -d chat_id=${TELEGRAM_CHAT_ID} \
+            -d text='${message}' \
+            -d parse_mode=Markdown
+        """
+    }
+}
 
 pipeline {
-    agent { label 'slave' }
-    environment {
-        FROM_REGISTRY = 'docker.nexign.com'
-        TO_REGISTRY   = 'docker-mf-middle-dev-local.nexign.com'
-        REGISTRY_CRED = 'registry-user-password'
-    }
-
-    def images = [
-      'golang/docker-golang-alpine',
-      //'golang/docker-base-alpine',
-      'node/docker-node16-alpine',
-      'node/docker-node18-alpine',
-      'node/docker-node20-alpine',
-      'node/docker-nginx-alpine',
-      'java/docker-java11maven-alpine',
-      'java/docker-java17maven-alpine',
-      'java/docker-java21maven-alpine',
-      'java/docker-java11gradle-alpine',
-      'java/docker-java17gradle-alpine',
-      'java/docker-java21gradle-alpine',
-      'java/java11jre-alpine',
-      'java/java17jre-alpine',
-      'java/java21jre-alpine',
-      'python/docker-python310-ubi',
-      'python/docker-python311-ubi'
-    ]
-
+    agent any
     stages {
-        stage('Build and Push All Base Images') {
+        stage('Build Images') {
             steps {
                 script {
-                    // Формируем map для параллельного запуска
-                    def runParallel = [failFast: false]
-                    for (String imgPath : images) {
-                        def nameParts = imgPath.split('/')
-                        def category = nameParts[0]
-                        def folder   = nameParts[1]
-                        def fullDir  = "${env.WORKSPACE}/${imgPath}"
-                        def imageName = folder  // docker-python311-ubi
-
-                        runParallel["${imageName}"] = {
-                            dir(imgPath) {
-                                withCredentials([usernamePassword(
-                                        credentialsId: REGISTRY_CRED,
-                                        usernameVariable: 'USERNAME',
-                                        passwordVariable: 'TOKEN')]) {
-
-                                    // 1. Собираем образ (build + runtime в одном Dockerfile)
-                                    stage("Build ${imageName}") {
-                                        sh """
-                                          DOCKER_BUILDKIT=1 docker build \
-                                            --pull --progress=plain \
-                                            --build-arg SOURCEIMAGE=${FROM_REGISTRY}/${imageName}-base:latest \
-                                            -t ${TO_REGISTRY}/microservices/infra/runtime/${imageName}:latest \
-                                            .
-                                        """
-                                        // авто‑тэги
-                                        /*
-                                        sh "docker tag ${TO_REGISTRY}/microservices/infra/runtime/${imageName}:latest \
-                                                   ${TO_REGISTRY}/microservices/infra/runtime/${imageName}:${env.GIT_COMMIT}"
-                                        sh "docker tag ${TO_REGISTRY}/microservices/infra/runtime/${imageName}:latest \
-                                                   ${TO_REGISTRY}/microservices/infra/runtime/${imageName}:${env.BUILD_NUMBER}"
-                                        */
+                    def buildTasks = [:]
+                    def buildResults = [:]
+                    def selectedImages = params.IMAGE == 'all' ? IMAGES : [params.IMAGE]
+                    selectedImages.each { img ->
+                        buildTasks[img] = {
+                            try {
+                                dir("${IMAGES_DIR}/${img}") {
+                                    sh "${JINJA_COMMAND}"
+                                    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+                                        sh "docker build -t ${getTargetImage(img)}:${IMAGE_TAG} ."
                                     }
-
-                                    // 2. Смок‑тест
-                                    stage("Smoke Test ${imageName}") {
-                                        sh "bash ${env.WORKSPACE}/common/scripts/smoke-test.sh ${TO_REGISTRY}/microservices/infra/runtime/${imageName}:latest"
-                                    }
-
-                                    // 3. Пушим собранный образ :latest
-                                    stage("Push ${imageName}:latest") {
-                                        sh "docker image push ${TO_REGISTRY}/microservices/infra/runtime/${imageName}:latest"
-                                        /*
-                                          // Закомментировано: пушим все теги, если понадобятся
-                                          sh "docker image push ${TO_REGISTRY}/microservices/infra/runtime/${imageName}:${env.GIT_COMMIT}"
-                                          sh "docker image push ${TO_REGISTRY}/microservices/infra/runtime/${imageName}:${env.BUILD_NUMBER}"
-                                        */
-                                    }
-
-                                    echo "✅ Образ ${imageName} успешно собран, проверен и запушен."
                                 }
+                                buildResults[img] = true
+                            } catch (Exception e) {
+                                buildResults[img] = false
+                                throw e
                             }
                         }
                     }
-                    // Запускаем всё параллельно
-                    parallel runParallel
+                    parallel buildTasks
+                    sendTelegramNotification('Build', buildResults)
+                }
+            }
+        }
+        stage('Smoke Test') {
+            steps {
+                script {
+                    def testResults = [:]
+                    def selectedImages = params.IMAGE == 'all' ? IMAGES : [params.IMAGE]
+                    selectedImages.each { img ->
+                        try {
+                            def container = docker.image("${getTargetImage(img)}:${IMAGE_TAG}").run()
+                            sleep 10
+                            sh "docker exec ${container.id} /bin/sh -c 'echo \"Container is running\"'"
+                            if (img.contains('nginx')) {
+                                sh "docker exec ${container.id} curl -s -o /dev/null -w '%{http_code}' localhost | grep 200"
+                            } else if (img.contains('python')) {
+                                sh "docker exec ${container.id} python -c 'print(\"Python works\")'"
+                            } else if (img.contains('java')) {
+                                sh "docker exec ${container.id} java -version"
+                            }
+                            container.stop()
+                            testResults[img] = true
+                        } catch (Exception e) {
+                            testResults[img] = false
+                            throw e
+                        }
+                    }
+                    sendTelegramNotification('Smoke Test', testResults)
+                }
+            }
+        }
+        stage('Push Images') {
+            steps {
+                script {
+                    def pushResults = [:]
+                    def selectedImages = params.IMAGE == 'all' ? IMAGES : [params.IMAGE]
+                    selectedImages.each { img ->
+                        try {
+                            docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+                                sh "docker push ${getTargetImage(img)}:${IMAGE_TAG}"
+                            }
+                            pushResults[img] = true
+                        } catch (Exception e) {
+                            pushResults[img] = false
+                            throw e
+                        }
+                    }
+                    sendTelegramNotification('Push', pushResults)
                 }
             }
         }
     }
+}
 
-    post {
-        failure {
-            script {
-                // Уведомления в случае ошибки.
-                // TODO: перенять механику уведомлений в телеграмм из nmf-ci-lib
-                emailext to: 'artyom.svyatov@nexign.com',
-                         subject: "Сборка baseimages провалена: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                         body: "Ошибка при сборке образов. Проверьте логи: ${env.BUILD_URL}"
-            }
-        }
-    }
+def getTargetImage(String img) {
+    return "${params.REGISTRY_URL}/${REGISTRY_PATH_TEMPLATE}/${img.replace('/', '-')}"
 }
