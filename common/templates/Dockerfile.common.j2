@@ -1,0 +1,26 @@
+FROM {{ base_image }}
+
+LABEL NAME={{ name }}
+
+{% for copy_item in copy %}
+COPY {{ copy_item.source }} {{ copy_item.dest }}
+{% endfor %}
+
+{% for run_cmd in run %}
+RUN {{ run_cmd }}
+{% endfor %}
+
+{% for pkg in packages %}
+RUN {{ package_manager }} add --no-cache {{ pkg }}
+{% endfor %}
+
+{% for user in users %}
+RUN adduser -u {{ user.uid }} {{ user.name }} -D
+{% endfor %}
+
+{% for key, value in env.items() %}
+ENV {{ key }}='{{ value }}'
+{% endfor %}
+
+WORKDIR {{ workdir }}
+USER {{ user }}
