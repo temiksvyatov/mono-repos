@@ -1,44 +1,37 @@
+import com.nmf.ci.utils.ExternalUtils
+@Library('nmf-ci-lib@feature') _
+def ExternalUtils externalUtils = new ExternalUtils(this)
+
 properties([
     parameters([
-        string(name: 'IMAGE', defaultValue: 'all', description: 'Image to build (e.g., alpine, golang)'),
+        string(name: 'IMAGE', defaultValue: 'all', description: 'Image to build (e.g., alpine, node/16)'),
         string(name: 'REGISTRY_URL', defaultValue: 'https://docker-mf-middle-dev-local.nexign.com', description: 'Docker registry URL'),
-        string(name: 'REGISTRY_CREDENTIALS', defaultValue: 'registry-user-password', description: 'Registry credentials ID'),
-        string(name: 'TELEGRAM_BOT_TOKEN_ID', defaultValue: 'telegram-bot-token', description: 'Telegram bot token credentials ID'),
-        string(name: 'TELEGRAM_CHAT_ID', defaultValue: 'telegram-chat-id', description: 'Telegram chat ID credentials ID')
+        string(name: 'REGISTRY_CREDENTIALS', defaultValue: 'registry-user-password', description: 'Registry credentials ID')
     ])
 ])
 
-// Основные параметры
-def IMAGES = [
-    'alpine', 'golang', 'node/16', 'node/18', 'node/20',
-    'java/11/maven', 'java/11/gradle', 'java/17/maven', 'java/17/gradle', 'java/21/maven', 'java/21/gradle',
-    'python/310', 'python/311', 'nginx', 'jre/11', 'jre/17', 'jre/21'
-]
+// Чтение versions.yaml
+def versions = readYaml(file: 'versions.yaml')
 def IMAGES_DIR = 'images'
-def REGISTRY_PATH_TEMPLATE = 'microservices/infra/runtime/base'
 def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
 def IMAGE_TAG = 'latest'
 
-def sendTelegramNotification(String stage, Map results) {
-    withCredentials([
-        string(credentialsId: params.TELEGRAM_BOT_TOKEN_ID, variable: 'TELEGRAM_BOT_TOKEN'),
-        string(credentialsId: params.TELEGRAM_CHAT_ID, variable: 'TELEGRAM_CHAT_ID')
-    ]) {
-        def message = "📢 ${stage} Results:\n"
-        results.each { img, status ->
-            message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
+// Генерация списка образов с учетом версий
+def getImageList() {
+    def imageList = []
+    versions.each { img, verList ->
+        verList.each { ver ->
+            def imgPath = img
+            if (img.contains('java')) {
+                imgPath = img.replace('.', '/')
+            }
+            imageList << "${imgPath}/${ver.version}"
         }
-        if (results.any { !it.value }) {
-            message += "Check Jenkins job: ${env.JOB_URL}"
-        }
-        sh """
-            curl -s -X POST https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage \
-            -d chat_id=${TELEGRAM_CHAT_ID} \
-            -d text='${message}' \
-            -d parse_mode=Markdown
-        """
     }
+    return imageList
 }
+
+def IMAGES = getImageList()
 
 pipeline {
     agent any
@@ -52,7 +45,8 @@ pipeline {
                     selectedImages.each { img ->
                         buildTasks[img] = {
                             try {
-                                dir("${IMAGES_DIR}/${img}") {
+                                def imgDir = img.tokenize('/')[0..-2].join('/')
+                                dir("${IMAGES_DIR}/${imgDir}") {
                                     sh "${JINJA_COMMAND}"
                                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                                         sh "docker build -t ${getTargetImage(img)}:${IMAGE_TAG} ."
@@ -66,7 +60,17 @@ pipeline {
                         }
                     }
                     parallel buildTasks
-                    sendTelegramNotification('Build', buildResults)
+                    // Формирование сообщения с результатами
+                    def message = "📢 Build Results:\n"
+                    buildResults.each { img, status ->
+                        message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
+                    }
+                    if (buildResults.any { !it.value }) {
+                        message += "Check Jenkins job: ${env.JOB_URL}"
+                        externalUtils.notify("❌ Build failed for some images", "${env.JOB_NAME}", "${env.JOB_URL}")
+                    } else {
+                        externalUtils.notify("✅ Build succeeded for all images", "${env.JOB_NAME}", "${env.JOB_URL}")
+                    }
                 }
             }
         }
@@ -84,7 +88,7 @@ pipeline {
                                 sh "docker exec ${container.id} curl -s -o /dev/null -w '%{http_code}' localhost | grep 200"
                             } else if (img.contains('python')) {
                                 sh "docker exec ${container.id} python -c 'print(\"Python works\")'"
-                            } else if (img.contains('java')) {
+                            } else if (img.contains('java') || img.contains('jre')) {
                                 sh "docker exec ${container.id} java -version"
                             }
                             container.stop()
@@ -94,7 +98,17 @@ pipeline {
                             throw e
                         }
                     }
-                    sendTelegramNotification('Smoke Test', testResults)
+                    // Формирование сообщения с результатами
+                    def message = "📢 Smoke Test Results:\n"
+                    testResults.each { img, status ->
+                        message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
+                    }
+                    if (testResults.any { !it.value }) {
+                        message += "Check Jenkins job: ${env.JOB_URL}"
+                        externalUtils.notify("❌ Smoke Test failed for some images", "${env.JOB_NAME}", "${env.JOB_URL}")
+                    } else {
+                        externalUtils.notify("✅ Smoke Test succeeded for all images", "${env.JOB_NAME}", "${env.JOB_URL}")
+                    }
                 }
             }
         }
@@ -114,7 +128,17 @@ pipeline {
                             throw e
                         }
                     }
-                    sendTelegramNotification('Push', pushResults)
+                    // Формирование сообщения с результатами
+                    def message = "📢 Push Results:\n"
+                    pushResults.each { img, status ->
+                        message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
+                    }
+                    if (pushResults.any { !it.value }) {
+                        message += "Check Jenkins job: ${env.JOB_URL}"
+                        externalUtils.notify("❌ Push failed for some images", "${env.JOB_NAME}", "${env.JOB_URL}")
+                    } else {
+                        externalUtils.notify("✅ Push succeeded for all images", "${env.JOB_NAME}", "${env.JOB_URL}")
+                    }
                 }
             }
         }
@@ -122,5 +146,5 @@ pipeline {
 }
 
 def getTargetImage(String img) {
-    return "${params.REGISTRY_URL}/${REGISTRY_PATH_TEMPLATE}/${img.replace('/', '-')}"
+    return "${params.REGISTRY_URL}/microservices/infra/runtime/base/${img.replace('/', '-')}"
 }
