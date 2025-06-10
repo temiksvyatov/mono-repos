@@ -1,0 +1,23 @@
+{% extends "common/templates/Dockerfile.common.j2" %}
+{% block specific %}
+ARG PYTHON_FULL_VERSION
+ARG PYTHON_MINOR_VERSION
+ENV APP_ROOT=/opt/app-root \
+    PATH=/opt/app-root/src/bin:/opt/app-root/bin:$HOME/.local/bin/:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=UTF-8 \
+    PIP_NO_CACHE_DIR=off
+COPY conf/pip.conf /etc/pip.conf
+RUN rm -f /etc/yum.repos.d/*
+RUN curl http://repo.nexign.com/scripts/add-ubi9-repo.sh | sh &&\
+    curl http://repo.nexign.com/scripts/add-almalinux-repo.sh | sh &&\
+    curl http://repo.nexign.com/scripts/add-elrepo-repo.sh | sh &&\
+    update-ca-trust force-enable &&\
+    update-ca-trust extract
+RUN dnf remove nodejs -y &&\
+    dnf upgrade -y
+RUN pip install virtualenv &&\
+    python3 -m virtualenv ${APP_ROOT} &&\
+    chown -R 11200:0 ${APP_ROOT}
+WORKDIR /data/app
+{% endblock %}

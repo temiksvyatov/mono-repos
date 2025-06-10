@@ -1,0 +1,6 @@
+{% extends "common/templates/Dockerfile.common.j2" %}
+{% block specific %}
+RUN apk add --no-cache bash make
+RUN apk upgrade libssl3 libcrypto3
+WORKDIR /data/maven
+{% endblock %}

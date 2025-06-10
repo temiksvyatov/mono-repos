@@ -1,0 +1,9 @@
+name: docker-java-{{ version }}-gradle-alpine
+packages:
+  - bash
+  - make
+  - curl
+  - jq
+run:
+  - apk upgrade libssl3 libcrypto3
+workdir: /data/gradle

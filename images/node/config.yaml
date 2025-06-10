@@ -1,0 +1,9 @@
+name: docker-node-{{ version }}-alpine
+packages:
+  - bash
+  - make
+  - git
+  - curl
+  - wget
+  - tar
+workdir: /data/build

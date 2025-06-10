@@ -1,0 +1,6 @@
+name: docker-golang-alpine
+packages:
+  - git
+  - make
+  - build-base
+workdir: /data/build

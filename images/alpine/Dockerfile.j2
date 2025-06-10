@@ -1,0 +1,4 @@
+{% extends "common/templates/Dockerfile.common.j2" %}
+{% block specific %}
+RUN apk clean cache
+{% endblock %}

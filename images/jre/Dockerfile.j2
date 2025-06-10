@@ -1,0 +1,9 @@
+{% extends "common/templates/Dockerfile.common.j2" %}
+{% block specific %}
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+RUN apk add --no-cache binutils
+{% for cert in java_certs %}
+RUN keytool -import -alias {{ cert.alias }} -keystore /opt/java/openjdk/lib/security/cacerts -file /usr/local/share/ca-certificates/{{ cert.file }} -noprompt -storepass changeit
+{% endfor %}
+{% endblock %}

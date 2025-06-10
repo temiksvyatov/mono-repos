@@ -1,0 +1,47 @@
+alpine:
+  - version: latest
+    base_image: docker.nexign.com/alpine:latest
+golang:
+  - version: latest
+    base_image: docker.nexign.com/golang:latest
+node:
+  - version: 16
+    base_image: docker.nexign.com/node:16-alpine
+  - version: 18
+    base_image: docker.nexign.com/node:18-alpine
+  - version: 20
+    base_image: docker.nexign.com/node:20-alpine
+java:
+  maven:
+    - version: 11
+      base_image: docker.nexign.com/java:11-maven-alpine
+    - version: 17
+      base_image: docker.nexign.com/java:17-maven-alpine
+    - version: 21
+      base_image: docker.nexign.com/java:21-maven-alpine
+  gradle:
+    - version: 11
+      base_image: docker.nexign.com/java:11-gradle-alpine
+    - version: 17
+      base_image: docker.nexign.com/java:17-gradle-alpine
+    - version: 21
+      base_image: docker.nexign.com/java:21-gradle-alpine
+python:
+  - version: 310
+    base_image: docker.nexign.com/ubi9/python-310
+    python_full_version: 3.10
+    python_minor_version: 310
+  - version: 311
+    base_image: docker.nexign.com/ubi9/python-311
+    python_full_version: 3.11
+    python_minor_version: 311
+nginx:
+  - version: latest
+    base_image: docker.nexign.com/alpine:latest
+jre:
+  - version: 11
+    base_image: docker.nexign.com/java:11-jre-alpine
+  - version: 17
+    base_image: docker.nexign.com/java:17-jre-alpine
+  - version: 21
+    base_image: docker.nexign.com/java:21-jre-alpine

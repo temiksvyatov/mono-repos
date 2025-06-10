@@ -1,0 +1,9 @@
+{% extends "common/templates/Dockerfile.common.j2" %}
+{% block specific %}
+ENV NODE_OPTIONS="--openssl-legacy-provider"
+RUN npm config set registry https://artifactory.nexign.com:443/artifactory/api/npm/npm/ && \
+    npm install npm -g && \
+    npm -v
+RUN apk add --no-cache bash make git curl wget tar
+WORKDIR /data/build
+{% endblock %}

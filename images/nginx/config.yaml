@@ -1,0 +1,15 @@
+name: docker-nginx-alpine
+copy:
+  - source: ./conf/nginx.conf
+    dest: /etc/nginx/nginx.conf
+  - source: ./conf/default.conf
+    dest: /etc/nginx/http.d/default.conf
+run:
+  - apk add --no-cache nginx
+  - mkdir -p /var/lib/nginx/tmp/client_body
+  - touch /var/run/nginx.pid
+  - chmod -R 777 /var/lib/nginx/ /var/log/nginx/ /var/run/
+  - chown -R 11200:11200 /var/run/nginx.pid /var/lib/nginx/ /var/log/nginx/
+env:
+  PATH: /usr/sbin:$PATH
+cmd: ["nginx", "-g", "daemon off;"]

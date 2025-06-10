@@ -1,0 +1,26 @@
+name: docker-python-{{ version }}-ubi
+package_manager: dnf
+copy:
+  - source: conf/pip.conf
+    dest: /etc/pip.conf
+  - source: common/certs/*
+    dest: /etc/pki/ca-trust/source/anchors/
+run:
+  - rm -f /etc/yum.repos.d/*
+  - curl http://repo.nexign.com/scripts/add-ubi9-repo.sh | sh
+  - curl http://repo.nexign.com/scripts/add-almalinux-repo.sh | sh
+  - curl http://repo.nexign.com/scripts/add-elrepo-repo.sh | sh
+  - update-ca-trust force-enable
+  - update-ca-trust extract
+  - dnf remove nodejs -y
+  - dnf upgrade -y
+  - pip install virtualenv
+  - python3 -m virtualenv ${APP_ROOT}
+  - chown -R 11200:0 ${APP_ROOT}
+env:
+  APP_ROOT: /opt/app-root
+  PATH: /opt/app-root/src/bin:/opt/app-root/bin:$HOME/.local/bin/:$PATH
+  PYTHONUNBUFFERED: 1
+  PYTHONIOENCODING: UTF-8
+  PIP_NO_CACHE_DIR: off
+workdir: /data/app

@@ -1,0 +1,16 @@
+{% extends "common/templates/Dockerfile.common.j2" %}
+{% block specific %}
+ENV PATH=/data/golang/go/bin:$PATH \
+    ARCH=x86_64 \
+    GOPROXY=https://artifactory.nexign.com/artifactory/api/go/go \
+    GONOPROXY=stash.billing.ru,gitlab.nexign.com \
+    GOPRIVATE=stash.billing.ru,gitlab.nexign.com \
+    GOCACHE=/data/cache \
+    GOOS=linux \
+    GOARCH=amd64 \
+    GOSUMDB=off \
+    GONOSUMDB="github.com/*" \
+    GO111MODULE=on
+RUN apk add --no-cache git make build-base
+WORKDIR /data/build
+{% endblock %}
