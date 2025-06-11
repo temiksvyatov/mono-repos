@@ -34,7 +34,7 @@ def getImageList() {
 def IMAGES = getImageList()
 
 pipeline {
-    agent any
+    agent { node { label "${slave}" } }
     stages {
         stage('Build Images') {
             steps {
