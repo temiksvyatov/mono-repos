@@ -10,13 +10,11 @@ properties([
     ])
 ])
 
-// Чтение versions.yaml
 def versions = readYaml(file: 'versions.yaml')
 def IMAGES_DIR = 'images'
 def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
 def IMAGE_TAG = 'latest'
 
-// Генерация списка образов с учетом версий
 def getImageList() {
     def imageList = []
     versions.each { img, verList ->
@@ -60,7 +58,6 @@ pipeline {
                         }
                     }
                     parallel buildTasks
-                    // Формирование сообщения с результатами
                     def message = "📢 Build Results:\n"
                     buildResults.each { img, status ->
                         message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
@@ -98,7 +95,6 @@ pipeline {
                             throw e
                         }
                     }
-                    // Формирование сообщения с результатами
                     def message = "📢 Smoke Test Results:\n"
                     testResults.each { img, status ->
                         message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
@@ -128,7 +124,6 @@ pipeline {
                             throw e
                         }
                     }
-                    // Формирование сообщения с результатами
                     def message = "📢 Push Results:\n"
                     pushResults.each { img, status ->
                         message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
