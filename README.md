@@ -1,4 +1,4 @@
-# mono-baseimages repo
+# mono-baseimages
 
 ## Getting started
 
