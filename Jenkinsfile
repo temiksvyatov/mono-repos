@@ -10,7 +10,7 @@ properties([
     ])
 ])
 
-def versions = readYaml(file: 'versions.yaml')
+def versions = new YamlSlurper().parseText(readFile('versions.yaml'))
 def IMAGES_DIR = 'images'
 def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
 def IMAGE_TAG = 'latest'
