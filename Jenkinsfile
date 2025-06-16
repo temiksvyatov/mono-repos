@@ -1,6 +1,7 @@
 import com.nmf.ci.utils.ExternalUtils
 @Library('nmf-ci-lib@feature') _
 def ExternalUtils externalUtils = new ExternalUtils(this)
+import groovy.yaml.YamlSlurper
 
 properties([
     parameters([
