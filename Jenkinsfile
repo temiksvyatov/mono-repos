@@ -11,7 +11,14 @@ properties([
     ])
 ])
 
-def versions = new YamlSlurper().parseText(readFile('versions.yaml'))
+def versions
+try {
+    def yamlContent = readFile('versions.yaml')
+    versions = new YamlSlurper().parseText(yamlContent)
+} catch (Exception e) {
+    echo "Failed to parse versions.yaml: ${e.getMessage()}"
+    throw e
+}
 def IMAGES_DIR = 'images'
 def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
 def IMAGE_TAG = 'latest'
