@@ -40,7 +40,7 @@ def getImageList(String yamlContent) {
 }
 
 pipeline {
-    agent any
+    agent { node { label "${slave}" } }
     stages {
         stage('Initialize') {
             steps {
