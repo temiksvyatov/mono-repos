@@ -1,7 +1,8 @@
 import com.nmf.ci.utils.ExternalUtils
 @Library('nmf-ci-lib@feature') _
 def ExternalUtils externalUtils = new ExternalUtils(this)
-import groovy.yaml.YamlSlurper
+@Grab('org.yaml:snakeyaml:1.29')
+import org.yaml.snakeyaml.Yaml
 
 properties([
     parameters([
@@ -11,14 +12,8 @@ properties([
     ])
 ])
 
-def versions
-try {
-    def yamlContent = readFile('versions.yaml')
-    versions = new YamlSlurper().parseText(yamlContent)
-} catch (Exception e) {
-    echo "Failed to parse versions.yaml: ${e.getMessage()}"
-    throw e
-}
+def yaml = new Yaml()
+def versions = yaml.load(readFile('versions.yaml'))
 def IMAGES_DIR = 'images'
 def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
 def IMAGE_TAG = 'latest'
