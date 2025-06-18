@@ -3,8 +3,6 @@ import org.yaml.snakeyaml.Yaml
 @Library('nmf-ci-lib@feature') _
 def ExternalUtils externalUtils = new ExternalUtils(this)
 
-def String slave = 'slave'
-
 properties([
     parameters([
         choice(name: 'BUILD_MODE', choices: ['parallel', 'sequential'], description: 'Build mode: parallel or sequential'),
@@ -19,6 +17,7 @@ def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
 def IMAGE_TAG = 'latest'
 def IMAGES = []
 
+// Генерация списка образов с учетом версий и приоритета, используя SnakeYAML
 def getImageList(String yamlContent) {
     def imageList = []
     def yaml = new Yaml()
@@ -30,18 +29,19 @@ def getImageList(String yamlContent) {
         if (img == 'java') {
             verList.each { subImg, subVerList ->
                 subVerList.each { ver ->
-                    def priority = ver.priority ?: 1000
+                    def priority = ver.priority ?: 1000 // Значение по умолчанию
                     imagesWithPriority << [image: "java/${subImg}/${ver.version}", priority: priority]
                 }
             }
         } else {
             verList.each { ver ->
-                def priority = ver.priority ?: 1000
+                def priority = ver.priority ?: 1000 // Значение по умолчанию
                 imagesWithPriority << [image: "${img}/${ver.version}", priority: priority]
             }
         }
     }
 
+    // Сортировка по приоритету и имени образа
     imagesWithPriority.sort { a, b ->
         a.priority <=> b.priority ?: a.image <=> b.image
     }.each { item ->
@@ -58,6 +58,7 @@ pipeline {
             steps {
                 script {
                     try {
+                        // Чтение versions.yaml внутри node
                         def yamlContent = readFile('versions.yaml')
                         IMAGES = getImageList(yamlContent)
                         echo "Parsed images: ${IMAGES.join(', ')}"
@@ -141,7 +142,7 @@ def performStep(String stageName, Closure stepClosure) {
                 results[img] = true
             } catch (Exception e) {
                 results[img] = false
-                throw e
+                throw e // Остановка при ошибке в последовательном режиме
             }
         }
     } else {
@@ -159,6 +160,7 @@ def performStep(String stageName, Closure stepClosure) {
         }
         parallel tasks
     }
+    // Уведомление о результатах
     def message = "📢 ${stageName} Results:\n"
     results.each { img, status ->
         message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
