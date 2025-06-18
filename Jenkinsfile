@@ -77,8 +77,8 @@ pipeline {
 
     options {
         timeout(time: 2, unit: 'HOURS')
-        retry(1)
-        timestamps()
+        skipDefaultCheckout(false)
+        disableConcurrentBuilds()
     }
 
     environment {
