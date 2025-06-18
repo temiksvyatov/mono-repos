@@ -1,7 +1,10 @@
 import com.nmf.ci.utils.ExternalUtils
 import org.yaml.snakeyaml.Yaml
+import jenkins.model.*
 @Library('nmf-ci-lib@feature') _
 def ExternalUtils externalUtils = new ExternalUtils(this)
+jenkins = Jenkins.instance
+
 
 properties([
     parameters([
