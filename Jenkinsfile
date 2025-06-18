@@ -45,9 +45,17 @@ pipeline {
         stage('Initialize') {
             steps {
                 script {
-                    // Чтение versions.yaml внутри node
-                    def yamlContent = readFile('versions.yaml')
-                    IMAGES = getImageList(yamlContent)
+                    try {
+                        // Чтение versions.yaml внутри node
+                        def yamlContent = readFile('versions.yaml')
+                        IMAGES = getImageList(yamlContent)
+                        echo "Parsed images: ${IMAGES.join(', ')}"
+                    } catch (Exception e) {
+                        def errorMessage = "Failed to initialize pipeline: ${e.message}\n${e.stackTrace.join('\n')}"
+                        echo errorMessage
+                        externalUtils.notify("❌ Initialization failed: ${e.message}\nCheck Jenkins job: ${env.JOB_URL}", "${env.JOB_NAME}", "${env.JOB_URL}")
+                        error errorMessage
+                    }
                 }
             }
         }
