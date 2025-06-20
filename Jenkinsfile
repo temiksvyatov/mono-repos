@@ -18,39 +18,40 @@ def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
 def IMAGE_TAG = 'latest'
 def IMAGES = []
 
-// Генерация списка образов с учетом версий и приоритета, используя SnakeYAML
 @NonCPS
 def getImageList(String yamlContent) {
     def imageList = []
     def yaml = new Yaml()
     def versions = yaml.load(yamlContent)
 
-    // Собираем образы с их приоритетами
-    def imagesWithPriority = []
+    def imagesWithPriority = [:]
+
     versions.each { img, verList ->
         if (img == 'java') {
             verList.each { subImg, subVerList ->
                 subVerList.each { ver ->
-                    def priority = ver.priority ?: 1000 // Значение по умолчанию
-                    imagesWithPriority.add([image: "java/${subImg}/${ver.version}", priority: priority])
+                    def priority = (ver.priority != null) ? ver.priority as Integer : 1000
+                    def imageName = "java/${subImg}/${ver.version}" as String
+                    imagesWithPriority[imageName] = priority
                 }
             }
         } else {
             verList.each { ver ->
-                def priority = ver.priority ?: 1000 // Значение по умолчанию
-                imagesWithPriority.add([image: "${img}/${ver.version}", priority: priority])
+                def priority = (ver.priority != null) ? ver.priority as Integer : 1000
+                def imageName = "${img}/${ver.version}" as String
+                imagesWithPriority[imageName] = priority
             }
         }
     }
 
     // Сортировка по приоритету и имени образа
-    imagesWithPriority = imagesWithPriority.sort { a, b ->
-        def priorityComparison = a.priority.compareTo(b.priority)
-        priorityComparison != 0 ? priorityComparison : a.image.compareTo(b.image)
+    def sortedImages = imagesWithPriority.entrySet().sort { a, b ->
+        def priorityComparison = a.value.compareTo(b.value)
+        priorityComparison != 0 ? priorityComparison : a.key.compareTo(b.key)
     }
 
-    imagesWithPriority.each { item ->
-        imageList.add(item.image)
+    sortedImages.each { entry ->
+        imageList.add(entry.key)
     }
 
     return imageList
@@ -79,12 +80,24 @@ pipeline {
                 script {
                     try {
                         // Чтение versions.yaml внутри node
+                        if (!fileExists('versions.yaml')) {
+                            error "versions.yaml file not found in workspace"
+                        }
+
                         def yamlContent = readFile('versions.yaml')
+                        echo "YAML content preview: ${yamlContent.take(200)}..."
+
                         IMAGES = getImageList(yamlContent)
+                        echo "Total images parsed: ${IMAGES.size()}"
                         echo "Parsed images: ${IMAGES.join(', ')}"
+
+                        if (IMAGES.isEmpty()) {
+                            error "No images were parsed from versions.yaml"
+                        }
                     } catch (Exception e) {
                         def errorMessage = "Failed to initialize pipeline: ${e.message}"
-                        echo errorMessage
+                        echo "Full error details: ${e.toString()}"
+                        e.printStackTrace()
                         currentBuild.result = 'FAILURE'
                         try {
                             externalUtils.notify("❌ Initialization failed: ${e.message}\nCheck Jenkins job: ${env.JOB_URL}", "${env.JOB_NAME}", "${env.JOB_URL}")
@@ -203,7 +216,7 @@ def performStep(String stageName, List selectedImages, Closure stepClosure) {
                 results[img] = false
                 echo "❌ ${stageName} failed for ${img}: ${e.message}"
                 currentBuild.result = 'FAILURE'
-                throw e // Остановка при ошибке в последовательном режиме
+                throw e
             }
         }
     } else {
