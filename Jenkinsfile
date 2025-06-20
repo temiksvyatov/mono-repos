@@ -14,9 +14,64 @@ properties([
 ])
 
 def IMAGES_DIR = 'images'
-def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
 def IMAGE_TAG = 'latest'
 def IMAGES = []
+
+def ensureJinja2() {
+    def jinjaExists = sh(script: 'which jinja2 || echo "not_found"', returnStdout: true).trim()
+    if (jinjaExists == "not_found") {
+        echo "Installing jinja2-cli..."
+        sh '''
+            # Попробуем разные способы установки
+            if command -v pip3 >/dev/null 2>&1; then
+                pip3 install --user jinja2-cli
+                export PATH="$HOME/.local/bin:$PATH"
+            elif command -v pip >/dev/null 2>&1; then
+                pip install --user jinja2-cli
+                export PATH="$HOME/.local/bin:$PATH"
+            elif command -v python3 >/dev/null 2>&1; then
+                python3 -m pip install --user jinja2-cli
+                export PATH="$HOME/.local/bin:$PATH"
+            elif command -v python >/dev/null 2>&1; then
+                python -m pip install --user jinja2-cli
+                export PATH="$HOME/.local/bin:$PATH"
+            else
+                echo "No suitable Python/pip found for jinja2 installation"
+                exit 1
+            fi
+        '''
+    }
+}
+
+def renderDockerfile() {
+    def jinjaExists = sh(script: 'which jinja2 || echo "not_found"', returnStdout: true).trim()
+
+    if (jinjaExists != "not_found") {
+        sh 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
+    } else {
+        sh '''
+            python3 << 'EOF'
+import yaml
+import os
+from jinja2 import Template
+
+with open('config.yaml', 'r') as f:
+    config = yaml.safe_load(f)
+
+with open('Dockerfile.j2', 'r') as f:
+    template_content = f.read()
+
+template = Template(template_content)
+rendered = template.render(**config)
+
+with open('Dockerfile', 'w') as f:
+    f.write(rendered)
+
+print("Dockerfile generated successfully")
+EOF
+        '''
+    }
+}
 
 @NonCPS
 def getImageList(String yamlContent) {
@@ -109,6 +164,20 @@ pipeline {
             }
         }
 
+        stage('Setup Dependencies') {
+            steps {
+                script {
+                    try {
+                        echo "Setting up build dependencies..."
+                        ensureJinja2()
+                        echo "Dependencies setup completed"
+                    } catch (Exception e) {
+                        echo "Warning: Could not setup jinja2-cli, will use Python fallback: ${e.message}"
+                    }
+                }
+            }
+        }
+
         stage('Build Images') {
             steps {
                 script {
@@ -117,9 +186,22 @@ pipeline {
                         validateImage(img, IMAGES)
                         def imgDir = getImageDirectory(img)
                         dir("${IMAGES_DIR}/${imgDir}") {
-                            sh "${JINJA_COMMAND}"
+                            echo "Building image: ${img}"
+                            echo "Working directory: ${pwd()}"
+
+                            sh 'ls -la'
+                            if (!fileExists('Dockerfile.j2')) {
+                                error "Dockerfile.j2 not found in ${pwd()}"
+                            }
+                            if (!fileExists('config.yaml')) {
+                                error "config.yaml not found in ${pwd()}"
+                            }
+
+                            renderDockerfile()
+
                             docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                                 def targetImage = getTargetImage(img)
+                                echo "Building Docker image: ${targetImage}:${IMAGE_TAG}"
                                 sh "docker build -t ${targetImage}:${IMAGE_TAG} ."
                             }
                         }
@@ -196,7 +278,6 @@ pipeline {
     }
 }
 
-// Функция для выполнения шага с учетом режима
 def performStep(String stageName, List selectedImages, Closure stepClosure) {
     def results = [:]
 
@@ -236,7 +317,6 @@ def performStep(String stageName, List selectedImages, Closure stepClosure) {
         }
     }
 
-    // Отчет о результатах
     def successCount = results.values().count(true)
     def totalCount = results.size()
     echo "${stageName} completed: ${successCount}/${totalCount} images successful"
