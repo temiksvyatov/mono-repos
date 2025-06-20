@@ -58,8 +58,8 @@ def getImageList(String yamlContent) {
 }
 
 @NonCPS
-def getSelectedImages() {
-    return params.IMAGES_TO_BUILD == 'all' ? IMAGES : params.IMAGES_TO_BUILD.split(',').collect { it.trim() }
+def getSelectedImages(List allImages) {
+    return params.IMAGES_TO_BUILD == 'all' ? allImages : params.IMAGES_TO_BUILD.split(',').collect { it.trim() }
 }
 
 @NonCPS
@@ -79,7 +79,6 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Чтение versions.yaml внутри node
                         if (!fileExists('versions.yaml')) {
                             error "versions.yaml file not found in workspace"
                         }
@@ -113,9 +112,9 @@ pipeline {
         stage('Build Images') {
             steps {
                 script {
-                    def selectedImages = getSelectedImages()
+                    def selectedImages = getSelectedImages(IMAGES)
                     performStep('Build', selectedImages) { img ->
-                        validateImage(img)
+                        validateImage(img, IMAGES)
                         def imgDir = getImageDirectory(img)
                         dir("${IMAGES_DIR}/${imgDir}") {
                             sh "${JINJA_COMMAND}"
@@ -132,13 +131,12 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 script {
-                    def selectedImages = getSelectedImages()
+                    def selectedImages = getSelectedImages(IMAGES)
                     performStep('Smoke Test', selectedImages) { img ->
-                        validateImage(img)
+                        validateImage(img, IMAGES)
                         def targetImage = getTargetImage(img)
                         def containerId = ""
                         try {
-                            // Запуск контейнера
                             containerId = sh(
                                 script: "docker run -d ${targetImage}:${IMAGE_TAG}",
                                 returnStdout: true
@@ -146,10 +144,8 @@ pipeline {
 
                             sleep 10
 
-                            // Базовая проверка
                             sh "docker exec ${containerId} /bin/sh -c 'echo \"Container is running\"'"
 
-                            // Специфичные проверки
                             if (img.contains('nginx')) {
                                 sh "docker exec ${containerId} curl -s -o /dev/null -w '%{http_code}' localhost | grep 200"
                             } else if (img.contains('python')) {
@@ -158,7 +154,6 @@ pipeline {
                                 sh "docker exec ${containerId} java -version"
                             }
                         } finally {
-                            // Обязательная очистка контейнера
                             if (containerId) {
                                 sh "docker stop ${containerId} || true"
                                 sh "docker rm ${containerId} || true"
@@ -172,9 +167,9 @@ pipeline {
         stage('Push Images') {
             steps {
                 script {
-                    def selectedImages = getSelectedImages()
+                    def selectedImages = getSelectedImages(IMAGES)
                     performStep('Push', selectedImages) { img ->
-                        validateImage(img)
+                        validateImage(img, IMAGES)
                         docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                             def targetImage = getTargetImage(img)
                             sh "docker push ${targetImage}:${IMAGE_TAG}"
@@ -187,7 +182,6 @@ pipeline {
 
     post {
         always {
-            // Очистка Docker образов и контейнеров
             sh 'docker system prune -f || true'
         }
         failure {
@@ -248,9 +242,9 @@ def performStep(String stageName, List selectedImages, Closure stepClosure) {
     echo "${stageName} completed: ${successCount}/${totalCount} images successful"
 }
 
-def validateImage(String img) {
-    if (!IMAGES.contains(img) && params.IMAGES_TO_BUILD != 'all') {
-        error "Invalid image: ${img}. Available images: ${IMAGES.join(', ')}"
+def validateImage(String img, List allImages) {
+    if (!allImages.contains(img) && params.IMAGES_TO_BUILD != 'all') {
+        error "Invalid image: ${img}. Available images: ${allImages.join(', ')}"
     }
 }
 
