@@ -42,14 +42,18 @@ def getImageList(String yamlContent) {
     }
 
     // Сортировка по приоритету и имени образа
-    imagesWithPriority.sort { a, b ->
-        a.priority <=> b.priority ?: a.image <=> b.image
-    }.each { item ->
+    imagesWithPriority = imagesWithPriority.sort { a, b ->
+        def priorityComparison = a.priority <=> b.priority
+        priorityComparison != 0 ? priorityComparison : a.image <=> b.image
+    }
+
+    imagesWithPriority.each { item ->
         imageList << item.image
     }
 
     return imageList
 }
+
 
 pipeline {
     agent { node { label 'slave' } }
@@ -161,16 +165,16 @@ def performStep(String stageName, Closure stepClosure) {
         parallel tasks
     }
     // Уведомление о результатах
-    def message = "📢 ${stageName} Results:\n"
-    results.each { img, status ->
-        message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
-    }
-    if (results.any { !it.value }) {
-        message += "Check Jenkins job: ${env.JOB_URL}"
-        externalUtils.notify("❌ ${stageName} failed for some images\n${message}", "${env.JOB_NAME}", "${env.JOB_URL}")
-    } else {
-        externalUtils.notify("✅ ${stageName} succeeded for all images\n${message}", "${env.JOB_NAME}", "${env.JOB_URL}")
-    }
+    // def message = "📢 ${stageName} Results:\n"
+    // results.each { img, status ->
+    //     message += "${status ? '✅' : '❌'} ${img}: ${status ? 'Success' : 'Failed'}\n"
+    // }
+    // if (results.any { !it.value }) {
+    //     message += "Check Jenkins job: ${env.JOB_URL}"
+    //     externalUtils.notify("❌ ${stageName} failed for some images\n${message}", "${env.JOB_NAME}", "${env.JOB_URL}")
+    // } else {
+    //     externalUtils.notify("✅ ${stageName} succeeded for all images\n${message}", "${env.JOB_NAME}", "${env.JOB_URL}")
+    // }
 }
 
 def getTargetImage(String img) {
