@@ -109,6 +109,16 @@ pipeline {
             }
         }
 
+        stage('Login to Docker Registry') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: params.REGISTRY_CREDENTIALS, passwordVariable: 'REGISTRY_PASSWORD', usernameVariable: 'REGISTRY_USERNAME')]) {
+                        sh "docker login -u ${REGISTRY_USERNAME} -p ${REGISTRY_PASSWORD} ${params.REGISTRY_URL}"
+                    }
+                }
+            }
+        }
+
         stage('Run Pipeline in Docker') {
             steps {
                 script {
