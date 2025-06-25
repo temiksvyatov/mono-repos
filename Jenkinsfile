@@ -118,7 +118,7 @@ pipeline {
                             validateImage(img, IMAGES)
                             def imgDir = getImageDirectory(img)
                             dir("${IMAGES_DIR}/${imgDir}") {
-                                docker.image('docker.nexign.com/docker-python311-ubi:latest').inside {
+                                docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
                                     sh "${PYTHON_COMMAND}"
                                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                                         def targetImage = getTargetImage(img)
