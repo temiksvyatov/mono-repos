@@ -124,7 +124,7 @@ pipeline {
                                     sh '''
                                     python -m venv myenv
                                     source myenv/bin/activate
-                                    pip install jinja2
+                                    pip install PyYAML
                                     '''
                                     sh "${PYTHON_COMMAND}"
                                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
