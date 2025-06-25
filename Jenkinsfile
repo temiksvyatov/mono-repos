@@ -112,19 +112,18 @@ pipeline {
         stage('Build Images') {
             steps {
                 script {
-                    def selectedImages = getSelectedImages(IMAGES)
-                    performStep('Build', selectedImages) { img ->
-                        validateImage(img, IMAGES)
-                        def imgDir = getImageDirectory(img)
-                        dir("${IMAGES_DIR}/${imgDir}") {
-                            docker.image('docker.nexign.com/docker-python311-ubi:latest').inside('-e DOCKER_USERNAME=${params.REGISTRY_CREDENTIALS_USR} -e DOCKER_PASSWORD=${params.REGISTRY_CREDENTIALS_PSW}') {
-                                sh """
-                                echo ${params.REGISTRY_CREDENTIALS_PSW} | docker login ${params.REGISTRY_URL} -u ${params.REGISTRY_CREDENTIALS_USR} --password-stdin
-                                ${PYTHON_COMMAND}
-                                """
-                                docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-                                    def targetImage = getTargetImage(img)
-                                    sh "docker build -t ${targetImage}:${IMAGE_TAG} ."
+                    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+                        def selectedImages = getSelectedImages(IMAGES)
+                        performStep('Build', selectedImages) { img ->
+                            validateImage(img, IMAGES)
+                            def imgDir = getImageDirectory(img)
+                            dir("${IMAGES_DIR}/${imgDir}") {
+                                docker.image('your-docker-image:tag').inside {
+                                    sh "${PYTHON_COMMAND}"
+                                    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+                                        def targetImage = getTargetImage(img)
+                                        sh "docker build -t ${targetImage}:${IMAGE_TAG} ."
+                                    }
                                 }
                             }
                         }
