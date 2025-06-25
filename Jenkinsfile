@@ -119,7 +119,7 @@ pipeline {
                             def imgDir = getImageDirectory(img)
                             dir("${IMAGES_DIR}/${imgDir}") {
                                 docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
-                                    sh 'pip install jinja2'
+                                    sh 'pip install --user jinja2'
                                     sh "${JINJA_COMMAND}"
                                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                                         def targetImage = getTargetImage(img)
@@ -185,20 +185,20 @@ pipeline {
         }
     }
 
-    post {
-        always {
-            sh 'docker system prune -f || true'
-        }
-        failure {
-            script {
-                try {
-                    externalUtils.notify("❌ Pipeline failed\nCheck Jenkins job: ${env.JOB_URL}", "${env.JOB_NAME}", "${env.JOB_URL}")
-                } catch (Exception e) {
-                    echo "Failed to send failure notification: ${e.message}"
-                }
-            }
-        }
-    }
+    // post {
+    //     always {
+    //         sh 'docker system prune -f || true'
+    //     }
+    //     failure {
+    //         script {
+    //             try {
+    //                 externalUtils.notify("❌ Pipeline failed\nCheck Jenkins job: ${env.JOB_URL}", "${env.JOB_NAME}", "${env.JOB_URL}")
+    //             } catch (Exception e) {
+    //                 echo "Failed to send failure notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 // Функция для выполнения шага с учетом режима
