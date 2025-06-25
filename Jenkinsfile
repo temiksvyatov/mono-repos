@@ -109,91 +109,75 @@ pipeline {
             }
         }
 
-        stage('Login to Docker Registry') {
+        stage('Build Images') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: params.REGISTRY_CREDENTIALS, passwordVariable: 'REGISTRY_PASSWORD', usernameVariable: 'REGISTRY_USERNAME')]) {
-                        sh "docker login -u ${REGISTRY_USERNAME} -p ${REGISTRY_PASSWORD} ${params.REGISTRY_URL}"
+                    def selectedImages = getSelectedImages(IMAGES)
+                    performStep('Build', selectedImages) { img ->
+                        validateImage(img, IMAGES)
+                        def imgDir = getImageDirectory(img)
+                        dir("${IMAGES_DIR}/${imgDir}") {
+                            docker.image('docker.nexign.com/docker-python311-ubi:latest').inside('-e DOCKER_USERNAME=${params.REGISTRY_CREDENTIALS_USR} -e DOCKER_PASSWORD=${params.REGISTRY_CREDENTIALS_PSW}') {
+                                sh """
+                                echo ${params.REGISTRY_CREDENTIALS_PSW} | docker login ${params.REGISTRY_URL} -u ${params.REGISTRY_CREDENTIALS_USR} --password-stdin
+                                ${PYTHON_COMMAND}
+                                """
+                                docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+                                    def targetImage = getTargetImage(img)
+                                    sh "docker build -t ${targetImage}:${IMAGE_TAG} ."
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        stage('Run Pipeline in Docker') {
+        stage('Smoke Test') {
             steps {
                 script {
-                    docker.image('docker.nexign.com/docker-python311-ubi:latest').inside {
-                        // All subsequent stages will run inside this container
-                        stages {
-                            stage('Build Images') {
-                                steps {
-                                    script {
-                                        def selectedImages = getSelectedImages(IMAGES)
-                                        performStep('Build', selectedImages) { img ->
-                                            validateImage(img, IMAGES)
-                                            def imgDir = getImageDirectory(img)
-                                            dir("${IMAGES_DIR}/${imgDir}") {
-                                                sh "${PYTHON_COMMAND}"
-                                                docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-                                                    def targetImage = getTargetImage(img)
-                                                    sh "docker build -t ${targetImage}:${IMAGE_TAG} ."
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                    def selectedImages = getSelectedImages(IMAGES)
+                    performStep('Smoke Test', selectedImages) { img ->
+                        validateImage(img, IMAGES)
+                        def targetImage = getTargetImage(img)
+                        def containerId = ""
+                        try {
+                            containerId = sh(
+                                script: "docker run -d ${targetImage}:${IMAGE_TAG}",
+                                returnStdout: true
+                            ).trim()
+
+                            sleep 10
+
+                            sh "docker exec ${containerId} /bin/sh -c 'echo \"Container is running\"'"
+
+                            if (img.contains('nginx')) {
+                                sh "docker exec ${containerId} curl -s -o /dev/null -w '%{http_code}' localhost | grep 200"
+                            } else if (img.contains('python')) {
+                                sh "docker exec ${containerId} python -c 'print(\"Python works\")'"
+                            } else if (img.contains('java') || img.contains('jre')) {
+                                sh "docker exec ${containerId} java -version"
                             }
-
-                            stage('Smoke Test') {
-                                steps {
-                                    script {
-                                        def selectedImages = getSelectedImages(IMAGES)
-                                        performStep('Smoke Test', selectedImages) { img ->
-                                            validateImage(img, IMAGES)
-                                            def targetImage = getTargetImage(img)
-                                            def containerId = ""
-                                            try {
-                                                containerId = sh(
-                                                    script: "docker run -d ${targetImage}:${IMAGE_TAG}",
-                                                    returnStdout: true
-                                                ).trim()
-
-                                                sleep 10
-
-                                                sh "docker exec ${containerId} /bin/sh -c 'echo \"Container is running\"'"
-
-                                                if (img.contains('nginx')) {
-                                                    sh "docker exec ${containerId} curl -s -o /dev/null -w '%{http_code}' localhost | grep 200"
-                                                } else if (img.contains('python')) {
-                                                    sh "docker exec ${containerId} python -c 'print(\"Python works\")'"
-                                                } else if (img.contains('java') || img.contains('jre')) {
-                                                    sh "docker exec ${containerId} java -version"
-                                                }
-                                            } finally {
-                                                if (containerId) {
-                                                    sh "docker stop ${containerId} || true"
-                                                    sh "docker rm ${containerId} || true"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                        } finally {
+                            if (containerId) {
+                                sh "docker stop ${containerId} || true"
+                                sh "docker rm ${containerId} || true"
                             }
+                        }
+                    }
+                }
+            }
+        }
 
-                            stage('Push Images') {
-                                steps {
-                                    script {
-                                        def selectedImages = getSelectedImages(IMAGES)
-                                        performStep('Push', selectedImages) { img ->
-                                            validateImage(img, IMAGES)
-                                            docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-                                                def targetImage = getTargetImage(img)
-                                                sh "docker push ${targetImage}:${IMAGE_TAG}"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+        stage('Push Images') {
+            steps {
+                script {
+                    def selectedImages = getSelectedImages(IMAGES)
+                    performStep('Push', selectedImages) { img ->
+                        validateImage(img, IMAGES)
+                        docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+                            def targetImage = getTargetImage(img)
+                            sh "docker push ${targetImage}:${IMAGE_TAG}"
                         }
                     }
                 }
