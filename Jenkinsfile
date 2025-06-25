@@ -14,7 +14,7 @@ properties([
 ])
 
 def IMAGES_DIR = 'images'
-def PYTHON_COMMAND = 'python generate_dockerfile.py Dockerfile.common.j2 config.yaml Dockerfile'
+def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
 def IMAGE_TAG = 'latest'
 def IMAGES = []
 
@@ -119,7 +119,7 @@ pipeline {
                             def imgDir = getImageDirectory(img)
                             dir("${IMAGES_DIR}/${imgDir}") {
                                 docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
-                                    sh "${PYTHON_COMMAND}"
+                                    sh "${JINJA_COMMAND}"
                                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                                         def targetImage = getTargetImage(img)
                                         sh "docker build -t ${targetImage}:${IMAGE_TAG} ."
