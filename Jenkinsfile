@@ -16,7 +16,7 @@ properties([
 
 def IMAGES_DIR = 'images'
 // def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
-def PYTHON_COMMAND = 'python generate_dockerfile.py Dockerfile.j2 config.yaml Dockerfile'
+def PYTHON_COMMAND = 'python ../../generate_dockerfile.py Dockerfile.j2 config.yaml Dockerfile'
 def IMAGE_TAG = 'latest'
 def IMAGES = []
 
