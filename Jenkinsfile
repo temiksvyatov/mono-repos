@@ -2,7 +2,6 @@
 import com.nmf.ci.utils.ExternalUtils
 import org.yaml.snakeyaml.Yaml
 
-
 def ExternalUtils externalUtils = new ExternalUtils(this)
 
 properties([
