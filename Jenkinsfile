@@ -26,19 +26,15 @@ def ensureJinja2() {
             if command -v pip3 >/dev/null 2>&1; then
                 pip3 install --user jinja2-cli
                 export PATH="$HOME/.local/bin:$PATH"
-                pip3 install --user pyyaml
             elif command -v pip >/dev/null 2>&1; then
                 pip install --user jinja2-cli
                 export PATH="$HOME/.local/bin:$PATH"
-                pip install --user pyyaml
             elif command -v python3 >/dev/null 2>&1; then
                 python3 -m pip install --user jinja2-cli
                 export PATH="$HOME/.local/bin:$PATH"
-                python3 -m pip install --user pyyaml
             elif command -v python >/dev/null 2>&1; then
                 python -m pip install --user jinja2-cli
                 export PATH="$HOME/.local/bin:$PATH"
-                python -m pip install --user pyyaml
             else
                 echo "No suitable Python/pip found for jinja2 installation"
                 exit 1
