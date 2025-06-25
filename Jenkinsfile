@@ -119,7 +119,11 @@ pipeline {
                             def imgDir = getImageDirectory(img)
                             dir("${IMAGES_DIR}/${imgDir}") {
                                 docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
-                                    sh 'pip install --user jinja2'
+                                    sh '''
+                                    python -m venv myenv
+                                    source myenv/bin/activate
+                                    pip install jinja2
+                                    '''
                                     sh "${JINJA_COMMAND}"
                                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                                         def targetImage = getTargetImage(img)
