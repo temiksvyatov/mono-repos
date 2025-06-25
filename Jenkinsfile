@@ -15,7 +15,8 @@ properties([
 ])
 
 def IMAGES_DIR = 'images'
-def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
+// def JINJA_COMMAND = 'jinja2 Dockerfile.j2 config.yaml -o Dockerfile'
+def PYTHON_COMMAND = 'python generate_dockerfile.py Dockerfile.j2 config.yaml Dockerfile'
 def IMAGE_TAG = 'latest'
 def IMAGES = []
 
@@ -125,7 +126,7 @@ pipeline {
                                     source myenv/bin/activate
                                     pip install jinja2
                                     '''
-                                    sh "${JINJA_COMMAND}"
+                                    sh "${PYTHON_COMMAND}"
                                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                                         def targetImage = getTargetImage(img)
                                         sh "docker build -t ${targetImage}:${IMAGE_TAG} ."
