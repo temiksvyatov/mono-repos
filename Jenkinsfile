@@ -105,14 +105,12 @@ def setupPythonEnvironment() {
         sh '''
             python3 -m venv python_env
             source python_env/bin/activate
-            pip install --upgrade pip
             pip install PyYAML
         '''
     } else {
         echo "Python environment already exists, updating dependencies..."
         sh '''
             source python_env/bin/activate
-            pip install --upgrade pip
             pip install PyYAML
         '''
     }
