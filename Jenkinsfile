@@ -73,9 +73,9 @@ def getImageDirectory(String img) {
     return parts.length > 1 ? parts[0..-2].join('/') : parts[0]
 }
 
-def validateImageStructure(String img) {
+def validateImageStructure(String img, String imagesDir = 'images') {
     def imgDir = getImageDirectory(img)
-    def fullPath = "${IMAGES_DIR}/${imgDir}"
+    def fullPath = "${imagesDir}/${imgDir}"
 
     if (!fileExists(fullPath)) {
         error "Image directory not found: ${fullPath}"
@@ -106,9 +106,9 @@ def setupPythonEnvironment() {
     }
 }
 
-def generateDockerfile(String img) {
+def generateDockerfile(String img, String imagesDir = 'images') {
     def imgDir = getImageDirectory(img)
-    def fullPath = "${IMAGES_DIR}/${imgDir}"
+    def fullPath = "${imagesDir}/${imgDir}"
 
     // Копируем скрипт генерации в рабочую директорию образа
     sh "cp generate_dockerfile.py ${fullPath}/"
@@ -165,7 +165,7 @@ pipeline {
 
                         // Проверяем структуру всех образов
                         IMAGES.each { img ->
-                            validateImageStructure(img)
+                            validateImageStructure(img, IMAGES_DIR)
                         }
 
                         echo "✅ All image structures validated successfully"
@@ -208,7 +208,7 @@ pipeline {
                     def selectedImages = getSelectedImages(IMAGES)
                     performStep('Generate Dockerfile', selectedImages) { img ->
                         validateImage(img, IMAGES)
-                        generateDockerfile(img)
+                        generateDockerfile(img, IMAGES_DIR)
                     }
                 }
             }
@@ -312,40 +312,40 @@ pipeline {
         }
     }
 
-    post {
-        always {
-            script {
-                try {
-                    echo "🧹 Cleaning up..."
-                    sh 'docker system prune -f || true'
-                    // Очищаем временные файлы
-                    sh 'find images -name "generate_dockerfile.py" -type f -delete || true'
-                    sh 'find images -name "Dockerfile" -type f -delete || true'
-                } catch (Exception e) {
-                    echo "Warning: Cleanup failed: ${e.message}"
-                }
-            }
-        }
-        // success {
-        //     script {
-        //         try {
-        //             def selectedImages = getSelectedImages(IMAGES)
-        //             externalUtils.notify("✅ Pipeline completed successfully!\n🐳 Built and pushed ${selectedImages.size()} images\nCheck Jenkins job: ${env.JOB_URL}", "${env.JOB_NAME}", "${env.JOB_URL}")
-        //         } catch (Exception e) {
-        //             echo "Failed to send success notification: ${e.message}"
-        //         }
-        //     }
-        // }
-        // failure {
-        //     script {
-        //         try {
-        //             externalUtils.notify("❌ Pipeline failed\nCheck Jenkins job: ${env.JOB_URL}", "${env.JOB_NAME}", "${env.JOB_URL}")
-        //         } catch (Exception e) {
-        //             echo "Failed to send failure notification: ${e.message}"
-        //         }
-        //     }
-        // }
-    }
+    // post {
+    //     always {
+    //         script {
+    //             try {
+    //                 echo "🧹 Cleaning up..."
+    //                 sh 'docker system prune -f || true'
+    //                 // Очищаем временные файлы
+    //                 sh "find ${IMAGES_DIR} -name 'generate_dockerfile.py' -type f -delete || true"
+    //                 sh "find ${IMAGES_DIR} -name 'Dockerfile' -type f -delete || true"
+    //             } catch (Exception e) {
+    //                 echo "Warning: Cleanup failed: ${e.message}"
+    //             }
+    //         }
+    //     }
+    //     success {
+    //         script {
+    //             try {
+    //                 def selectedImages = getSelectedImages(IMAGES)
+    //                 externalUtils.notify("✅ Pipeline completed successfully!\n🐳 Built and pushed ${selectedImages.size()} images\nCheck Jenkins job: ${env.JOB_URL}", "${env.JOB_NAME}", "${env.JOB_URL}")
+    //             } catch (Exception e) {
+    //                 echo "Failed to send success notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    //     failure {
+    //         script {
+    //             try {
+    //                 externalUtils.notify("❌ Pipeline failed\nCheck Jenkins job: ${env.JOB_URL}", "${env.JOB_NAME}", "${env.JOB_URL}")
+    //             } catch (Exception e) {
+    //                 echo "Failed to send failure notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 // Функция для выполнения шага с учетом режима
