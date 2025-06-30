@@ -93,36 +93,50 @@ def validateImageStructure(String img, String imagesDir = 'images') {
 def setupPythonEnvironment() {
     echo "Setting up Python environment..."
 
+    def workspacePath = pwd()
+    def pythonEnvPath = "${workspacePath}/python_env"
+
     // Проверяем, существует ли уже окружение
     def envExists = sh(
-        script: '[ -d "python_env" ] && echo "exists" || echo "missing"',
+        script: "[ -d '${pythonEnvPath}' ] && echo 'exists' || echo 'missing'",
         returnStdout: true
     ).trim()
 
-    if (envExists == 'missing') {
-        echo "Creating new Python virtual environment..."
-        docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
-            sh '''
-                python3 -m venv python_env
-                python_env/bin/pip install PyYAML
-            '''
-        }
-    } else {
-        echo "Python environment already exists, updating dependencies..."
-        docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
-            sh '''
-                python_env/bin/pip install PyYAML
-            '''
+    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+        if (envExists == 'missing') {
+            docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
+                echo "Creating new Python virtual environment..."
+                sh """
+                    cd ${workspacePath}
+                    python3 -m venv python_env
+                    source python_env/bin/activate
+                    pip install --upgrade pip
+                    pip install PyYAML
+                """
+            }
+        } else {
+            docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
+                echo "Python environment already exists, updating dependencies..."
+                sh """
+                    cd ${workspacePath}
+                    source python_env/bin/activate
+                    pip install --upgrade pip
+                    pip install PyYAML
+                """
+            }
         }
     }
 
-    echo "Python environment ready"
+    echo "Python environment ready at: ${pythonEnvPath}"
 }
-
 
 def generateDockerfile(String img, String imagesDir = 'images') {
     def imgDir = getImageDirectory(img)
     def fullPath = "${imagesDir}/${imgDir}"
+
+    // Сохраняем абсолютный путь к workspace
+    def workspacePath = pwd()
+    def pythonEnvPath = "${workspacePath}/python_env"
 
     // Проверяем наличие необходимых файлов
     if (!fileExists("${fullPath}/Dockerfile.j2")) {
@@ -137,11 +151,11 @@ def generateDockerfile(String img, String imagesDir = 'images') {
     sh "cp generate_dockerfile.py ${fullPath}/"
 
     dir(fullPath) {
-        // Активируем виртуальное окружение и генерируем Dockerfile
-        sh '''
-            source python_env/bin/activate
+        // Активируем виртуальное окружение используя абсолютный путь и генерируем Dockerfile
+        sh """
+            source ${pythonEnvPath}/bin/activate
             python generate_dockerfile.py Dockerfile.j2 config.yaml Dockerfile
-        '''
+        """
 
         // Проверяем, что Dockerfile создался
         if (!fileExists('Dockerfile')) {
