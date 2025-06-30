@@ -100,22 +100,28 @@ def setupPythonEnvironment() {
         returnStdout: true
     ).trim()
 
+    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
     if (envExists == 'missing') {
+        docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
         echo "Creating new Python virtual environment..."
         sh '''
             python3 -m venv python_env
             source python_env/bin/activate
             pip install PyYAML
         '''
+        }
     } else {
+        docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
         echo "Python environment already exists, updating dependencies..."
         sh '''
             source python_env/bin/activate
             pip install PyYAML
         '''
+        }
     }
 
     echo "Python environment ready"
+    }
 }
 
 def generateDockerfile(String img, String imagesDir = 'images') {
