@@ -143,7 +143,7 @@ def generateDockerfile(String img, String imagesDir = 'images') {
     dir(fullPath) {
         // Активируем виртуальное окружение и генерируем Dockerfile
         sh '''
-            source ../../../python_env/bin/activate
+            source python_env/bin/activate
             python generate_dockerfile.py Dockerfile.j2 config.yaml Dockerfile
         '''
 
