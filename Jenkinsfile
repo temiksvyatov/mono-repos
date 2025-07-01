@@ -10,7 +10,7 @@ properties([
         string(name: 'IMAGES_TO_BUILD', defaultValue: 'all', description: 'Comma-separated list of images to build (e.g., alpine,node/16) or "all"'),
         string(name: 'REGISTRY_URL', defaultValue: 'https://docker-mf-middle-dev-local.nexign.com', description: 'Docker registry URL'),
         string(name: 'REGISTRY_CREDENTIALS', defaultValue: 'registry-user-password', description: 'Registry credentials ID'),
-        number(name: 'MAX_PARALLEL_THREADS', defaultValue: '10', description: 'Maximum parallel build threads')
+        string(name: 'MAX_PARALLEL_THREADS', defaultValue: '10', description: 'Maximum parallel build threads')
     ])
 ])
 
