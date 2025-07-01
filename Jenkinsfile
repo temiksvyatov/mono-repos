@@ -491,31 +491,38 @@ def performStep(String stageName, List selectedImages, Closure stepClosure) {
                 }
             }
         } else {
-            def tasks = [:]
-            selectedImages.each { img ->
-                tasks[img] = {
-                    def imgStartTime = System.currentTimeMillis()
-                    try {
-                        stepClosure(img)
-                        results[img] = true
-                        def duration = (System.currentTimeMillis() - imgStartTime) / 1000
-                        echo "✅ ${stageName} succeeded for ${img} (${duration}s)"
-                    } catch (Exception e) {
-                        results[img] = false
-                        def duration = (System.currentTimeMillis() - imgStartTime) / 1000
-                        echo "❌ ${stageName} failed for ${img} after ${duration}s: ${e.message}"
-                        throw e
+            // Создаем map для parallel execution
+            def parallelTasks = [failFast: true]
+
+            // Добавляем задачи с ограничением количества потоков
+            selectedImages.eachWithIndex { img, index ->
+                if (index < maxThreads) {
+                    parallelTasks[img] = {
+                        def imgStartTime = System.currentTimeMillis()
+                        try {
+                            stepClosure(img)
+                            results[img] = true
+                            def duration = (System.currentTimeMillis() - imgStartTime) / 1000
+                            echo "✅ ${stageName} succeeded for ${img} (${duration}s)"
+                        } catch (Exception e) {
+                            results[img] = false
+                            def duration = (System.currentTimeMillis() - imgStartTime) / 1000
+                            echo "❌ ${stageName} failed for ${img} after ${duration}s: ${e.message}"
+                            throw e
+                        }
                     }
                 }
             }
-            parallel tasks, failFast: true, maxThreads: maxThreads
+
+            // Выполняем задачи параллельно
+            parallel parallelTasks
         }
     } catch (Exception e) {
         currentBuild.result = 'FAILURE'
         throw e
     }
 
-    // Generate report
+    // Генерация отчета
     def successCount = results.values().count(true)
     def totalCount = results.size()
     def totalDuration = (System.currentTimeMillis() - startTime) / 1000
