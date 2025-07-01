@@ -8,7 +8,7 @@ properties([
     parameters([
         choice(name: 'BUILD_MODE', choices: ['parallel', 'sequential'], description: 'Build mode: parallel or sequential'),
         string(name: 'IMAGES_TO_BUILD', defaultValue: 'all', description: 'Comma-separated list of images to build (e.g., alpine,node/16) or "all"'),
-        string(name: 'REGISTRY_URL', defaultValue: 'docker-mf-middle-dev-local.nexign.com', description: 'Docker registry URL'),
+        string(name: 'REGISTRY_URL', defaultValue: 'https://docker-mf-middle-dev-local.nexign.com', description: 'Docker registry URL')
         string(name: 'REGISTRY_CREDENTIALS', defaultValue: 'registry-user-password', description: 'Registry credentials ID'),
         string(name: 'MAX_PARALLEL_THREADS', defaultValue: '10', description: 'Maximum parallel build threads')
     ])
@@ -63,7 +63,10 @@ def getSelectedImages(List allImages) {
 }
 
 def getTargetImage(String img) {
-    return "${params.REGISTRY_URL}/microservices/infra/runtime/base/${img.replace('/', '-')}"
+    def registryUrl = params.REGISTRY_URL.startsWith('http') ?
+        params.REGISTRY_URL :
+        "https://${params.REGISTRY_URL}"
+    return "${registryUrl}/microservices/infra/runtime/base/${img.replace('/', '-')}"
 }
 
 def getImageDirectory(String img) {
@@ -476,7 +479,7 @@ def performStep(String stageName, List selectedImages, Closure stepClosure) {
 
     try {
         if (params.BUILD_MODE == 'sequential') {
-            for (String img in selectedImages) {
+            selectedImages.each { img ->
                 def imgStartTime = System.currentTimeMillis()
                 try {
                     stepClosure(img)
@@ -491,12 +494,12 @@ def performStep(String stageName, List selectedImages, Closure stepClosure) {
                 }
             }
         } else {
-            // Создаем map для parallel execution
-            def parallelTasks = [failFast: true]
+            // Разбиваем задачи на группы по maxThreads
+            def imageGroups = selectedImages.collate(maxThreads)
 
-            // Добавляем задачи с ограничением количества потоков
-            selectedImages.eachWithIndex { img, index ->
-                if (index < maxThreads) {
+            imageGroups.each { group ->
+                def parallelTasks = [failFast: true]
+                group.each { img ->
                     parallelTasks[img] = {
                         def imgStartTime = System.currentTimeMillis()
                         try {
@@ -512,24 +515,22 @@ def performStep(String stageName, List selectedImages, Closure stepClosure) {
                         }
                     }
                 }
+                parallel parallelTasks
             }
-
-            // Выполняем задачи параллельно
-            parallel parallelTasks
         }
     } catch (Exception e) {
         currentBuild.result = 'FAILURE'
         throw e
     }
 
-    // Генерация отчета
-    def successCount = results.values().count(true)
+    // Отчет о выполнении
+    def successCount = results.count { it.value }
     def totalCount = results.size()
     def totalDuration = (System.currentTimeMillis() - startTime) / 1000
-    echo "📊 ${stageName} results: ${successCount}/${totalCount} successful (${totalDuration}s)"
+    echo "📊 ${stageName} completed: ${successCount}/${totalCount} successful (${totalDuration}s)"
 
     if (successCount < totalCount) {
-        def failedImages = results.findAll { !it.value }.collect { it.key }
+        def failedImages = results.findAll { !it.value }.keySet()
         echo "❌ Failed images: ${failedImages.join(', ')}"
     }
 }
