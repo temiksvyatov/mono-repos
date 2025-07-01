@@ -91,35 +91,56 @@ def validateImageStructure(String img, String imagesDir = 'images') {
 def setupPythonEnvironment() {
     echo "Setting up Python environment..."
 
-    def workspacePath = pwd()
+    // Используем абсолютный путь внутри workspace
+    def pythonEnvPath = "${env.WORKSPACE}/python_env_${env.BUILD_ID}"
+    env.PYTHON_ENV_PATH = pythonEnvPath  // Делаем переменную доступной в окружении
 
-    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-        docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
-            def envExists = sh(
-                script: "[ -d '${PYTHON_ENV_PATH}' ] && echo 'exists' || echo 'missing'",
+    try {
+        docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+            // Сначала пытаемся использовать полный путь к образу
+            def dockerImage = "${params.REGISTRY_URL}/microservices/infra/build/python/docker-python311-ubi:latest"
+
+            // Проверяем наличие образа
+            def imageExists = sh(
+                script: "docker inspect --type=image ${dockerImage} >/dev/null 2>&1 && echo 'exists' || echo 'missing'",
                 returnStdout: true
             ).trim()
 
-            if (envExists == 'missing') {
-                echo "Creating new Python virtual environment..."
-                sh """
-                    python3 -m venv '${PYTHON_ENV_PATH}'
-                    source '${PYTHON_ENV_PATH}/bin/activate'
-                    pip install --upgrade pip
-                    pip install PyYAML
-                """
-            } else {
-                echo "Python environment already exists, checking dependencies..."
-                sh """
-                    source '${PYTHON_ENV_PATH}/bin/activate'
-                    if ! pip show PyYAML; then
+            if (imageExists == 'missing') {
+                echo "Pulling Docker image..."
+                sh "docker pull ${dockerImage}"
+            }
+
+            // Запускаем контейнер с явным указанием entrypoint
+            docker.image(dockerImage).inside("--entrypoint=''") {
+                def envExists = sh(
+                    script: "[ -d '${pythonEnvPath}' ] && echo 'exists' || echo 'missing'",
+                    returnStdout: true
+                ).trim()
+
+                if (envExists == 'missing') {
+                    echo "Creating new Python virtual environment..."
+                    sh """
+                        python3 -m venv '${pythonEnvPath}'
+                        source '${pythonEnvPath}/bin/activate'
+                        pip install --upgrade pip
                         pip install PyYAML
-                    fi
-                """
+                    """
+                } else {
+                    echo "Python environment already exists, checking dependencies..."
+                    sh """
+                        source '${pythonEnvPath}/bin/activate'
+                        pip install --upgrade pip
+                        pip install -q PyYAML || pip install PyYAML
+                    """
+                }
             }
         }
+        echo "✅ Python environment ready at: ${pythonEnvPath}"
+    } catch (Exception e) {
+        echo "❌ Failed to setup Python environment: ${e.message}"
+        throw e
     }
-    echo "Python environment ready at: ${PYTHON_ENV_PATH}"
 }
 
 def generateDockerfile(String img, String imagesDir = 'images') {
