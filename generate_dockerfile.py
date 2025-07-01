@@ -1,43 +1,58 @@
 #!/usr/bin/env python3
 """
-Dockerfile generator with Jinja2-like template inheritance support
+Dockerfile generator with proper template inheritance support
 """
 
 import yaml
 import sys
 import os
-from pathlib import Path
+from collections import defaultdict
 
 class DockerfileGenerator:
     def __init__(self):
-        self.template_paths = ['.']  # Пути для поиска шаблонов
-        self.base_template = None
-        self.current_template = None
+        self.template_paths = ['.', 'common/templates']  # Пути для поиска шаблонов
         self.config = {}
-        self.blocks = {}
+        self.templates = {}  # Кэш загруженных шаблонов
+        self.blocks = defaultdict(list)  # Блоки из дочерних шаблонов
+        self.current_template = None
 
     def log(self, level, message):
         """Логирование сообщений"""
         print(f"[{level}] {message}", file=sys.stderr if level == 'ERROR' else sys.stdout)
 
+    def find_template(self, template_name):
+        """Поиск шаблона в указанных путях"""
+        for path in self.template_paths:
+            template_path = os.path.join(path, template_name)
+            if os.path.exists(template_path):
+                return template_path
+        raise FileNotFoundError(f"Template not found: {template_name}")
+
     def load_template(self, template_path):
         """Загрузка шаблона с обработкой наследования"""
+        if template_path in self.templates:
+            return self.templates[template_path]
+
         try:
             with open(template_path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
+            self.log('INFO', f"Loading template: {template_path}")
             lines = content.split('\n')
-            processed_lines = []
-            i = 0
+            template_info = {
+                'extends': None,
+                'blocks': {},
+                'content': []
+            }
 
+            i = 0
             while i < len(lines):
                 line = lines[i].strip()
 
                 if line.startswith('{% extends '):
                     # Обработка наследования шаблонов
                     base_template = line.split('"')[1] if '"' in line else line.split("'")[1]
-                    self.base_template = self.find_template(base_template)
-                    self.log('INFO', f"Found base template: {self.base_template}")
+                    template_info['extends'] = self.find_template(base_template)
                     i += 1
                 elif line.startswith('{% block '):
                     # Обработка блоков
@@ -49,69 +64,60 @@ class DockerfileGenerator:
                         block_content.append(lines[i])
                         i += 1
 
-                    self.blocks[block_name] = '\n'.join(block_content)
+                    template_info['blocks'][block_name] = '\n'.join(block_content)
                     i += 1
                 else:
-                    processed_lines.append(lines[i])
+                    template_info['content'].append(lines[i])
                     i += 1
 
-            self.current_template = '\n'.join(processed_lines)
-
-            if self.base_template:
-                # Рекурсивная обработка базового шаблона
-                self.load_template(self.base_template)
+            self.templates[template_path] = template_info
+            return template_info
 
         except Exception as e:
             self.log('ERROR', f"Failed to load template {template_path}: {str(e)}")
             raise
 
-    def find_template(self, template_name):
-        """Поиск шаблона в указанных путях"""
-        for path in self.template_paths:
-            template_path = os.path.join(path, template_name)
-            if os.path.exists(template_path):
-                return template_path
-        raise FileNotFoundError(f"Template not found: {template_name}")
+    def process_inheritance(self, template_path):
+        """Обработка цепочки наследования шаблонов"""
+        template_stack = []
+        current_path = template_path
 
-    def render(self):
-        """Генерация Dockerfile с подстановкой блоков"""
-        if not self.current_template:
-            raise ValueError("No template loaded")
+        while current_path:
+            template = self.load_template(current_path)
+            template_stack.append(template)
+            current_path = template['extends']
 
+        # Собираем все блоки из всей цепочки наследования
+        all_blocks = {}
+        for template in reversed(template_stack):
+            all_blocks.update(template['blocks'])
+
+        # Собираем контент из базового шаблона
+        base_content = []
+        if template_stack:
+            base_template = template_stack[-1]
+            base_content = base_template['content']
+
+        return base_content, all_blocks
+
+    def render_content(self, content, blocks):
+        """Рендеринг контента с подстановкой блоков и переменных"""
         result = []
-        lines = self.current_template.split('\n')
-        i = 0
+        for line in content:
+            # Подстановка блоков
+            if '{% block ' in line and '%}' in line:
+                block_name = line.split('{% block ')[1].split(' %}')[0].strip()
+                if block_name in blocks:
+                    result.extend(blocks[block_name].split('\n'))
+                continue
 
-        while i < len(lines):
-            line = lines[i]
-
-            if line.strip().startswith('{% block '):
-                # Пропускаем определение блоков в основном шаблоне
-                block_name = line.strip().split()[2]
-                while i < len(lines) and not lines[i].strip().startswith('{% endblock %}'):
-                    i += 1
-                i += 1
-            elif '{{' in line and '}}' in line:
-                # Простая подстановка переменных
-                try:
-                    line = line.format(**self.config)
-                except KeyError as e:
-                    self.log('WARNING', f"Missing variable in config: {str(e)}")
+            # Простая подстановка переменных
+            try:
+                rendered_line = line.format(**self.config)
+                result.append(rendered_line)
+            except KeyError as e:
+                self.log('WARNING', f"Missing variable in config: {str(e)}")
                 result.append(line)
-                i += 1
-            else:
-                result.append(line)
-                i += 1
-
-        # Подставляем блоки из дочернего шаблона
-        for block_name, block_content in self.blocks.items():
-            for j in range(len(result)):
-                if f'{{% block {block_name} %}}' in result[j]:
-                    start = j
-                    while j < len(result) and f'{{% endblock {block_name} %}}' not in result[j]:
-                        j += 1
-                    result[start:j+1] = block_content.split('\n')
-                    break
 
         return '\n'.join(result)
 
@@ -124,14 +130,17 @@ class DockerfileGenerator:
 
             self.log('INFO', f"Loaded config from {config_path}")
 
-            # Загрузка и обработка шаблона
-            self.load_template(template_path)
+            # Полный путь к шаблону
+            template_path = self.find_template(template_path)
+
+            # Обработка наследования шаблонов
+            base_content, all_blocks = self.process_inheritance(template_path)
 
             # Рендеринг результата
-            dockerfile_content = self.render()
+            dockerfile_content = self.render_content(base_content, all_blocks)
 
             # Сохранение результата
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(dockerfile_content)
 
