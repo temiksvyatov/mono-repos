@@ -99,9 +99,9 @@ def setupPythonEnvironment() {
     env.PYTHON_ENV_PATH = pythonEnvPath  // Делаем переменную доступной в окружении
 
     try {
-        docker.withRegistry("https://${params.REGISTRY_URL}", params.REGISTRY_CREDENTIALS) {
+        docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
             // Сначала пытаемся использовать полный путь к образу
-            def dockerImage = "${params.REGISTRY_URL}/microservices/infra/build/python/docker-python311-ubi:latest"
+            def dockerImage = "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/python/docker-python311-ubi:latest"
 
             // Проверяем наличие образа
             def imageExists = sh(
