@@ -9,16 +9,16 @@ properties([
         choice(name: 'BUILD_MODE', choices: ['parallel', 'sequential'], description: 'Build mode: parallel or sequential'),
         string(name: 'IMAGES_TO_BUILD', defaultValue: 'all', description: 'Comma-separated list of images to build (e.g., alpine,node/16) or "all"'),
         string(name: 'REGISTRY_URL', defaultValue: 'https://docker-mf-middle-dev-local.nexign.com', description: 'Docker registry URL'),
-        string(name: 'REGISTRY_CREDENTIALS', defaultValue: 'registry-user-password', description: 'Registry credentials ID')
+        string(name: 'REGISTRY_CREDENTIALS', defaultValue: 'registry-user-password', description: 'Registry credentials ID'),
+        number(name: 'MAX_PARALLEL_THREADS', defaultValue: '10', description: 'Maximum parallel build threads')
     ])
 ])
 
-// Глобальные переменные - вынесены в начало для лучшей видимости
 def IMAGES_DIR = 'images'
 def IMAGE_TAG = 'latest'
 def IMAGES = []
+def PYTHON_ENV_PATH = "${env.WORKSPACE}/python_env_${env.BUILD_ID}"
 
-@NonCPS
 def getImageList(String yamlContent) {
     def imageList = []
     def yaml = new Yaml()
@@ -44,7 +44,6 @@ def getImageList(String yamlContent) {
         }
     }
 
-    // Сортировка по приоритету и имени образа
     def sortedImages = imagesWithPriority.entrySet().sort { a, b ->
         def priorityComparison = a.value.compareTo(b.value)
         priorityComparison != 0 ? priorityComparison : a.key.compareTo(b.key)
@@ -57,17 +56,14 @@ def getImageList(String yamlContent) {
     return imageList
 }
 
-@NonCPS
 def getSelectedImages(List allImages) {
     return params.IMAGES_TO_BUILD == 'all' ? allImages : params.IMAGES_TO_BUILD.split(',').collect { it.trim() }
 }
 
-@NonCPS
 def getTargetImage(String img) {
     return "${params.REGISTRY_URL}/microservices/infra/runtime/base/${img.replace('/', '-')}"
 }
 
-@NonCPS
 def getImageDirectory(String img) {
     def parts = img.split('/')
     return parts.length > 1 ? parts[0..-2].join('/') : parts[0]
@@ -94,57 +90,39 @@ def setupPythonEnvironment() {
     echo "Setting up Python environment..."
 
     def workspacePath = pwd()
-    def pythonEnvPath = "${workspacePath}/python_env"
-
-    def envExists = sh(
-        script: "[ -d '${pythonEnvPath}' ] && echo 'exists' || echo 'missing'",
-        returnStdout: true
-    ).trim()
 
     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-        if (envExists == 'missing') {
-            docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
+        docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
+            def envExists = sh(
+                script: "[ -d '${PYTHON_ENV_PATH}' ] && echo 'exists' || echo 'missing'",
+                returnStdout: true
+            ).trim()
+
+            if (envExists == 'missing') {
                 echo "Creating new Python virtual environment..."
                 sh """
-                    cd ${workspacePath}
-                    echo "Current directory: \$(pwd)"
-                    echo "Python version: \$(python3 --version)"
-                    python3 -m venv python_env
-                    source python_env/bin/activate
+                    python3 -m venv '${PYTHON_ENV_PATH}'
+                    source '${PYTHON_ENV_PATH}/bin/activate'
                     pip install --upgrade pip
-                    echo "Installing PyYAML..."
                     pip install PyYAML
-                    # Проверяем установку PyYAML
-                    pip show PyYAML || { echo "PyYAML not installed correctly"; exit 1; }
                 """
-            }
-        } else {
-            docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
-                echo "Python environment already exists, updating dependencies..."
+            } else {
+                echo "Python environment already exists, checking dependencies..."
                 sh """
-                    cd ${workspacePath}
-                    echo "Current directory: \$(pwd)"
-                    echo "Python version: \$(python3 --version)"
-                    source python_env/bin/activate
-                    pip install --upgrade pip
-                    echo "Installing PyYAML..."
-                    pip install PyYAML
-                    # Проверяем установку PyYAML
-                    pip show PyYAML || { echo "PyYAML not installed correctly"; exit 1; }
+                    source '${PYTHON_ENV_PATH}/bin/activate'
+                    if ! pip show PyYAML; then
+                        pip install PyYAML
+                    fi
                 """
             }
         }
     }
-
-    echo "Python environment ready at: ${pythonEnvPath}"
+    echo "Python environment ready at: ${PYTHON_ENV_PATH}"
 }
 
 def generateDockerfile(String img, String imagesDir = 'images') {
     def imgDir = getImageDirectory(img)
     def fullPath = "${imagesDir}/${imgDir}"
-
-    def workspacePath = pwd()
-    def pythonEnvPath = "${workspacePath}/python_env"
 
     if (!fileExists("${fullPath}/Dockerfile.j2")) {
         error "Dockerfile.j2 not found for image: ${img} in ${fullPath}"
@@ -154,28 +132,23 @@ def generateDockerfile(String img, String imagesDir = 'images') {
         error "config.yaml not found for image: ${img} in ${fullPath}"
     }
 
-    sh "cp generate_dockerfile.py ${fullPath}/"
-
-    dir(fullPath) {
-        sh """
-            echo "Activating Python environment at: ${pythonEnvPath}"
-            source ${pythonEnvPath}/bin/activate
-            # Проверяем установку PyYAML
-            echo "Checking PyYAML installation..."
-            pip show PyYAML || { echo "PyYAML not installed correctly"; exit 1; }
-            echo "Running generate_dockerfile.py..."
-            python3 generate_dockerfile.py Dockerfile.j2 config.yaml Dockerfile
-        """
-
-        // Проверяем, что Dockerfile создался
-        if (!fileExists('Dockerfile')) {
-            error "Failed to generate Dockerfile for ${img}"
+    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+        docker.image('microservices/infra/build/python/docker-python311-ubi:latest').inside {
+            sh """
+                source '${PYTHON_ENV_PATH}/bin/activate'
+                python3 generate_dockerfile.py \
+                    '${fullPath}/Dockerfile.j2' \
+                    '${fullPath}/config.yaml' \
+                    '${fullPath}/Dockerfile'
+            """
         }
-
-        echo "✅ Dockerfile generated successfully for ${img}"
     }
-}
 
+    if (!fileExists("${fullPath}/Dockerfile")) {
+        error "Failed to generate Dockerfile for ${img}"
+    }
+    echo "✅ Dockerfile generated successfully for ${img}"
+}
 
 pipeline {
     agent {
@@ -191,7 +164,6 @@ pipeline {
                     try {
                         echo "🚀 Initializing pipeline..."
 
-                        // Проверяем основные файлы
                         if (!fileExists('versions.yaml')) {
                             error "versions.yaml file not found in workspace"
                         }
@@ -201,39 +173,40 @@ pipeline {
                         }
 
                         def yamlContent = readFile('versions.yaml')
-                        echo "YAML content preview: ${yamlContent.take(200)}..."
-
                         IMAGES = getImageList(yamlContent)
-                        echo "Total images parsed: ${IMAGES.size()}"
-                        echo "Parsed images: ${IMAGES.join(', ')}"
 
                         if (IMAGES.isEmpty()) {
                             error "No images were parsed from versions.yaml"
                         }
 
-                        // Проверяем структуру всех образов
-                        IMAGES.each { img ->
-                            validateImageStructure(img, IMAGES_DIR)
-                        }
-
-                        echo "✅ All image structures validated successfully"
+                        def selectedImages = getSelectedImages(IMAGES)
+                        echo "Selected images: ${selectedImages.join(', ')}"
 
                     } catch (Exception e) {
                         def errorMessage = "Failed to initialize pipeline: ${e.message}"
                         echo "❌ Initialization error: ${errorMessage}"
-                        echo "Full error details: ${e.toString()}"
                         currentBuild.result = 'FAILURE'
-
-                        // Безопасная отправка уведомления
-                        try {
-                            if (externalUtils != null) {
-                                externalUtils.notify("❌ Initialization failed: ${e.message}\nCheck Jenkins job: ${env.JOB_URL}", "${env.JOB_NAME}", "${env.JOB_URL}")
-                            }
-                        } catch (Exception notifyError) {
-                            echo "Failed to send notification: ${notifyError.message}"
-                        }
-
                         error(errorMessage)
+                    }
+                }
+            }
+        }
+
+        stage('Validate Structure') {
+            steps {
+                script {
+                    try {
+                        def selectedImages = getSelectedImages(IMAGES)
+                        echo "🔍 Validating structure for ${selectedImages.size()} images..."
+
+                        selectedImages.each { img ->
+                            validateImageStructure(img, IMAGES_DIR)
+                        }
+                        echo "✅ All image structures validated"
+                    } catch (Exception e) {
+                        echo "❌ Validation failed: ${e.message}"
+                        currentBuild.result = 'FAILURE'
+                        throw e
                     }
                 }
             }
@@ -263,7 +236,6 @@ pipeline {
                         echo "🔨 Generating Dockerfiles for ${selectedImages.size()} images..."
 
                         performStep('Generate Dockerfile', selectedImages) { img ->
-                            validateImage(img, IMAGES)
                             generateDockerfile(img, IMAGES_DIR)
                         }
 
@@ -286,21 +258,19 @@ pipeline {
 
                         docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                             performStep('Build', selectedImages) { img ->
-                                validateImage(img, IMAGES)
                                 def imgDir = getImageDirectory(img)
                                 def fullPath = "${IMAGES_DIR}/${imgDir}"
+                                def targetImage = getTargetImage(img)
 
                                 dir(fullPath) {
                                     if (!fileExists('Dockerfile')) {
-                                        error "Dockerfile not found for ${img} in ${fullPath}"
+                                        error "Dockerfile not found for ${img}"
                                     }
-
-                                    def targetImage = getTargetImage(img)
-                                    echo "Building image: ${targetImage}:${IMAGE_TAG}"
-
-                                    sh "docker build -t ${targetImage}:${IMAGE_TAG} ."
-                                    echo "✅ Image built successfully: ${targetImage}:${IMAGE_TAG}"
+                                    sh """
+                                        docker build --pull -t '${targetImage}:${IMAGE_TAG}' .
+                                    """
                                 }
+                                echo "✅ Image built: ${targetImage}:${IMAGE_TAG}"
                             }
                         }
 
@@ -322,37 +292,52 @@ pipeline {
                         echo "🧪 Running smoke tests for ${selectedImages.size()} images..."
 
                         performStep('Smoke Test', selectedImages) { img ->
-                            validateImage(img, IMAGES)
                             def targetImage = getTargetImage(img)
                             def containerId = ""
+                            def imageType = img.split('/')[0].toLowerCase()
 
                             try {
                                 echo "🧪 Running smoke test for ${targetImage}:${IMAGE_TAG}"
-
                                 containerId = sh(
-                                    script: "docker run -d ${targetImage}:${IMAGE_TAG}",
+                                    script: "docker run -d '${targetImage}:${IMAGE_TAG}'",
                                     returnStdout: true
                                 ).trim()
 
-                                // Ждем запуска контейнера
-                                sleep 10
+                                // Wait for container to start
+                                sleep 5
 
-                                // Базовая проверка работоспособности
-                                sh "docker exec ${containerId} /bin/sh -c 'echo \"Container is running\"'"
+                                // Check container status
+                                def status = sh(
+                                    script: "docker inspect -f '{{.State.Status}}' ${containerId}",
+                                    returnStdout: true
+                                ).trim()
 
-                                // Специфичные тесты для разных типов образов
-                                if (img.contains('nginx')) {
-                                    sh "docker exec ${containerId} nginx -t"
-                                    sh "docker exec ${containerId} pgrep nginx"
-                                } else if (img.contains('python')) {
-                                    sh "docker exec ${containerId} python --version"
-                                    sh "docker exec ${containerId} python -c 'print(\"Python works\")'"
-                                } else if (img.contains('java') || img.contains('jre')) {
-                                    sh "docker exec ${containerId} java -version"
-                                } else if (img.contains('node')) {
-                                    sh "docker exec ${containerId} node --version"
-                                } else if (img.contains('golang')) {
-                                    sh "docker exec ${containerId} go version"
+                                if (status != "running") {
+                                    error "Container not running. Status: ${status}"
+                                }
+
+                                // Image-specific tests
+                                switch(imageType) {
+                                    case 'nginx':
+                                        sh "docker exec ${containerId} nginx -t"
+                                        sh "docker exec ${containerId} pgrep nginx"
+                                        break
+                                    case 'python':
+                                        sh "docker exec ${containerId} python --version"
+                                        sh "docker exec ${containerId} python -c 'print(\"Python works\")'"
+                                        break
+                                    case 'java':
+                                    case 'jre':
+                                        sh "docker exec ${containerId} java -version"
+                                        break
+                                    case 'node':
+                                        sh "docker exec ${containerId} node --version"
+                                        break
+                                    case 'golang':
+                                        sh "docker exec ${containerId} go version"
+                                        break
+                                    default:
+                                        sh "docker exec ${containerId} /bin/sh -c 'echo \"Base image test passed\"'"
                                 }
 
                                 echo "✅ Smoke test passed for ${img}"
@@ -361,8 +346,7 @@ pipeline {
                                 echo "❌ Smoke test failed for ${img}: ${e.message}"
                                 throw e
                             } finally {
-                                // Всегда очищаем контейнер
-                                if (containerId && containerId.trim() != "") {
+                                if (containerId?.trim()) {
                                     sh "docker stop ${containerId} || true"
                                     sh "docker rm ${containerId} || true"
                                 }
@@ -388,11 +372,9 @@ pipeline {
 
                         docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                             performStep('Push', selectedImages) { img ->
-                                validateImage(img, IMAGES)
                                 def targetImage = getTargetImage(img)
-                                echo "📤 Pushing image: ${targetImage}:${IMAGE_TAG}"
-                                sh "docker push ${targetImage}:${IMAGE_TAG}"
-                                echo "✅ Image pushed successfully: ${targetImage}:${IMAGE_TAG}"
+                                sh "docker push '${targetImage}:${IMAGE_TAG}'"
+                                echo "✅ Image pushed: ${targetImage}:${IMAGE_TAG}"
                             }
                         }
 
@@ -407,68 +389,67 @@ pipeline {
         }
     }
 
-    // post {
-    //     always {
-    //         script {
-    //             try {
-    //                 echo "🧹 Cleaning up..."
+    post {
+        always {
+            script {
+                try {
+                    echo "🧹 Cleaning up..."
 
-    //                 // Очистка Docker системы
-    //                 sh 'docker system prune -f || true'
+                    // Remove built images
+                    def selectedImages = getSelectedImages(IMAGES)
+                    selectedImages.each { img ->
+                        def targetImage = getTargetImage(img)
+                        sh "docker rmi -f '${targetImage}:${IMAGE_TAG}' || true"
+                    }
 
-    //                 // Очищаем временные файлы
-    //                 sh "find ${IMAGES_DIR} -name 'generate_dockerfile.py' -type f -delete || true"
-    //                 sh "find ${IMAGES_DIR} -name 'Dockerfile' -type f -delete || true"
+                    // Remove temporary files
+                    sh "find ${IMAGES_DIR} -name 'Dockerfile' -type f -delete || true"
 
-    //                 // Очищаем Python окружение (опционально)
-    //                 // sh 'rm -rf python_env || true'
+                    // Clean Python environment
+                    sh "rm -rf '${PYTHON_ENV_PATH}' || true"
 
-    //                 echo "✅ Cleanup completed"
-    //             } catch (Exception e) {
-    //                 echo "⚠️ Warning: Cleanup failed: ${e.message}"
-    //             }
-    //         }
-    //     }
-    //     success {
-    //         script {
-    //             try {
-    //                 def selectedImages = getSelectedImages(IMAGES)
-    //                 def message = "✅ Pipeline completed successfully!\n🐳 Built and pushed ${selectedImages.size()} images\nCheck Jenkins job: ${env.JOB_URL}"
+                    echo "✅ Cleanup completed"
+                } catch (Exception e) {
+                    echo "⚠️ Warning: Cleanup failed: ${e.message}"
+                }
+            }
+        }
+        success {
+            script {
+                try {
+                    def selectedImages = getSelectedImages(IMAGES)
+                    def message = "✅ Pipeline completed!\n🐳 Built ${selectedImages.size()} images\nJob: ${env.JOB_URL}"
 
-    //                 if (externalUtils != null) {
-    //                     externalUtils.notify(message, "${env.JOB_NAME}", "${env.JOB_URL}")
-    //                 }
+                    if (externalUtils) {
+                        externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+                    }
+                } catch (Exception e) {
+                    echo "⚠️ Failed to send notification: ${e.message}"
+                }
+            }
+        }
+        failure {
+            script {
+                try {
+                    def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
 
-    //                 echo "✅ Success notification sent"
-    //             } catch (Exception e) {
-    //                 echo "⚠️ Failed to send success notification: ${e.message}"
-    //             }
-    //         }
-    //     }
-    //     failure {
-    //         script {
-    //             try {
-    //                 def message = "❌ Pipeline failed\nCheck Jenkins job: ${env.JOB_URL}"
-
-    //                 if (externalUtils != null) {
-    //                     externalUtils.notify(message, "${env.JOB_NAME}", "${env.JOB_URL}")
-    //                 }
-
-    //                 echo "❌ Failure notification sent"
-    //             } catch (Exception e) {
-    //                 echo "⚠️ Failed to send failure notification: ${e.message}"
-    //             }
-    //         }
-    //     }
-    // }
+                    if (externalUtils) {
+                        externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+                    }
+                } catch (Exception e) {
+                    echo "⚠️ Failed to send notification: ${e.message}"
+                }
+            }
+        }
+    }
 }
 
-// Функция для выполнения шага с учетом режима
 def performStep(String stageName, List selectedImages, Closure stepClosure) {
     def results = [:]
     def startTime = System.currentTimeMillis()
+    def maxThreads = params.MAX_PARALLEL_THREADS.toInteger()
 
-    echo "🔄 Starting ${stageName} for ${selectedImages.size()} images in ${params.BUILD_MODE} mode"
+    echo "🔄 Starting ${stageName} for ${selectedImages.size()} images (Mode: ${params.BUILD_MODE}, Max Threads: ${maxThreads})"
 
     try {
         if (params.BUILD_MODE == 'sequential') {
@@ -504,27 +485,21 @@ def performStep(String stageName, List selectedImages, Closure stepClosure) {
                     }
                 }
             }
-            parallel tasks
+            parallel tasks, failFast: true, maxThreads: maxThreads
         }
     } catch (Exception e) {
         currentBuild.result = 'FAILURE'
         throw e
     }
 
-    // Отчет о результатах
+    // Generate report
     def successCount = results.values().count(true)
     def totalCount = results.size()
     def totalDuration = (System.currentTimeMillis() - startTime) / 1000
-    echo "📊 ${stageName} completed: ${successCount}/${totalCount} images successful in ${totalDuration}s"
+    echo "📊 ${stageName} results: ${successCount}/${totalCount} successful (${totalDuration}s)"
 
     if (successCount < totalCount) {
         def failedImages = results.findAll { !it.value }.collect { it.key }
         echo "❌ Failed images: ${failedImages.join(', ')}"
-    }
-}
-
-def validateImage(String img, List allImages) {
-    if (!allImages.contains(img) && params.IMAGES_TO_BUILD != 'all') {
-        error "Invalid image: ${img}. Available images: ${allImages.join(', ')}"
     }
 }
