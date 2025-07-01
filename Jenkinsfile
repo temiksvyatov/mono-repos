@@ -167,10 +167,15 @@ def generateDockerfile(String img, String imagesDir = 'images') {
         }
     }
 
-    if (!fileExists("${fullPath}/Dockerfile")) {
+    if (fileExists("${fullPath}/Dockerfile")) {
+        echo "=== Dockerfile for ${img} ==="
+        def dockerfileContent = readFile("${fullPath}/Dockerfile")
+        echo dockerfileContent
+        echo "=== End of Dockerfile ==="
+        echo "✅ Dockerfile generated successfully for ${img}"
+    } else {
         error "Failed to generate Dockerfile for ${img}"
     }
-    echo "✅ Dockerfile generated successfully for ${img}"
 }
 
 pipeline {
