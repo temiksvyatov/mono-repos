@@ -131,7 +131,7 @@ class DockerfileGenerator:
             dockerfile_content = self.render()
 
             # Сохранение результата
-            os.makedirs(os.path.dirname(output_path) or True
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(dockerfile_content)
 
