@@ -8,7 +8,7 @@ properties([
     parameters([
         choice(name: 'BUILD_MODE', choices: ['parallel', 'sequential'], description: 'Build mode: parallel or sequential'),
         string(name: 'IMAGES_TO_BUILD', defaultValue: 'all', description: 'Comma-separated list of images to build (e.g., alpine,node/16) or "all"'),
-        string(name: 'REGISTRY_URL', defaultValue: 'docker-mf-middle-dev-local.nexign.com', description: 'Docker registry URL'),
+        string(name: 'REGISTRY_URL', defaultValue: 'https://docker-mf-middle-dev-local.nexign.com', description: 'Docker registry URL'),
         string(name: 'REGISTRY_CREDENTIALS', defaultValue: 'registry-user-password', description: 'Registry credentials ID'),
         string(name: 'MAX_PARALLEL_THREADS', defaultValue: '10', description: 'Maximum parallel build threads')
     ])
@@ -98,7 +98,7 @@ def setupPythonEnvironment() {
     try {
         docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
             // Сначала пытаемся использовать полный путь к образу
-            def dockerImage = "${params.REGISTRY_URL}/microservices/infra/build/python/docker-python311-ubi:latest"
+            def dockerImage = "microservices/infra/build/python/docker-python311-ubi:latest"
 
             // Проверяем наличие образа
             def imageExists = sh(
