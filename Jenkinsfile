@@ -20,40 +20,34 @@ def IMAGES = []
 def PYTHON_ENV_PATH = "${env.WORKSPACE}/python_env_${env.BUILD_ID}"
 
 def getImageList(String yamlContent) {
-    def imageList = []
     def yaml = new Yaml()
     def versions = yaml.load(yamlContent)
-
-    def imagesWithPriority = [:]
+    def imagesWithPriority = []
 
     versions.each { img, verList ->
         if (img == 'java') {
             verList.each { subImg, subVerList ->
                 subVerList.each { ver ->
-                    def priority = (ver.priority != null) ? ver.priority as Integer : 1000
-                    def imageName = "java/${subImg}/${ver.version}" as String
-                    imagesWithPriority[imageName] = priority
+                    def priority = ver.priority != null ? ver.priority as Integer : 1000
+                    def imageName = "java/${subImg}/${ver.version}"
+                    imagesWithPriority.add([name: imageName, priority: priority])
                 }
             }
         } else {
             verList.each { ver ->
-                def priority = (ver.priority != null) ? ver.priority as Integer : 1000
-                def imageName = "${img}/${ver.version}" as String
-                imagesWithPriority[imageName] = priority
+                def priority = ver.priority != null ? ver.priority as Integer : 1000
+                def imageName = "${img}/${ver.version}"
+                imagesWithPriority.add([name: imageName, priority: priority])
             }
         }
     }
 
-    def sortedImages = imagesWithPriority.entrySet().sort { a, b ->
-        def priorityComparison = a.value.compareTo(b.value)
-        priorityComparison != 0 ? priorityComparison : a.key.compareTo(b.key)
+    def sortedImages = imagesWithPriority.toSorted { a, b ->
+        def priorityComparison = a.priority <=> b.priority
+        priorityComparison != 0 ? priorityComparison : a.name <=> b.name
     }
 
-    sortedImages.each { entry ->
-        imageList.add(entry.key)
-    }
-
-    return imageList
+    return sortedImages.collect { it.name }
 }
 
 def getSelectedImages(List allImages) {
@@ -389,59 +383,59 @@ pipeline {
         }
     }
 
-    post {
-        always {
-            script {
-                try {
-                    echo "🧹 Cleaning up..."
+    // post {
+    //     always {
+    //         script {
+    //             try {
+    //                 echo "🧹 Cleaning up..."
 
-                    // Remove built images
-                    def selectedImages = getSelectedImages(IMAGES)
-                    selectedImages.each { img ->
-                        def targetImage = getTargetImage(img)
-                        sh "docker rmi -f '${targetImage}:${IMAGE_TAG}' || true"
-                    }
+    //                 // Remove built images
+    //                 def selectedImages = getSelectedImages(IMAGES)
+    //                 selectedImages.each { img ->
+    //                     def targetImage = getTargetImage(img)
+    //                     sh "docker rmi -f '${targetImage}:${IMAGE_TAG}' || true"
+    //                 }
 
-                    // Remove temporary files
-                    sh "find ${IMAGES_DIR} -name 'Dockerfile' -type f -delete || true"
+    //                 // Remove temporary files
+    //                 sh "find ${IMAGES_DIR} -name 'Dockerfile' -type f -delete || true"
 
-                    // Clean Python environment
-                    sh "rm -rf '${PYTHON_ENV_PATH}' || true"
+    //                 // Clean Python environment
+    //                 sh "rm -rf '${PYTHON_ENV_PATH}' || true"
 
-                    echo "✅ Cleanup completed"
-                } catch (Exception e) {
-                    echo "⚠️ Warning: Cleanup failed: ${e.message}"
-                }
-            }
-        }
-        success {
-            script {
-                try {
-                    def selectedImages = getSelectedImages(IMAGES)
-                    def message = "✅ Pipeline completed!\n🐳 Built ${selectedImages.size()} images\nJob: ${env.JOB_URL}"
+    //                 echo "✅ Cleanup completed"
+    //             } catch (Exception e) {
+    //                 echo "⚠️ Warning: Cleanup failed: ${e.message}"
+    //             }
+    //         }
+    //     }
+    //     success {
+    //         script {
+    //             try {
+    //                 def selectedImages = getSelectedImages(IMAGES)
+    //                 def message = "✅ Pipeline completed!\n🐳 Built ${selectedImages.size()} images\nJob: ${env.JOB_URL}"
 
-                    if (externalUtils) {
-                        externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-                    }
-                } catch (Exception e) {
-                    echo "⚠️ Failed to send notification: ${e.message}"
-                }
-            }
-        }
-        failure {
-            script {
-                try {
-                    def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
+    //                 if (externalUtils) {
+    //                     externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+    //                 }
+    //             } catch (Exception e) {
+    //                 echo "⚠️ Failed to send notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    //     failure {
+    //         script {
+    //             try {
+    //                 def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
 
-                    if (externalUtils) {
-                        externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-                    }
-                } catch (Exception e) {
-                    echo "⚠️ Failed to send notification: ${e.message}"
-                }
-            }
-        }
-    }
+    //                 if (externalUtils) {
+    //                     externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+    //                 }
+    //             } catch (Exception e) {
+    //                 echo "⚠️ Failed to send notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 def performStep(String stageName, List selectedImages, Closure stepClosure) {
