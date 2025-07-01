@@ -63,10 +63,7 @@ def getSelectedImages(List allImages) {
 }
 
 def getTargetImage(String img) {
-    def registryUrl = params.REGISTRY_URL.startsWith('http') ?
-        params.REGISTRY_URL :
-        "https://${params.REGISTRY_URL}"
-    return "${registryUrl}/microservices/infra/runtime/base/${img.replace('/', '-')}"
+    return "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/${img.replace('/', '-')}"
 }
 
 def getImageDirectory(String img) {
