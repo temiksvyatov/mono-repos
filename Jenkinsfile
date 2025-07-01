@@ -96,7 +96,6 @@ def setupPythonEnvironment() {
     def workspacePath = pwd()
     def pythonEnvPath = "${workspacePath}/python_env"
 
-    // Проверяем, существует ли уже окружение
     def envExists = sh(
         script: "[ -d '${pythonEnvPath}' ] && echo 'exists' || echo 'missing'",
         returnStdout: true
@@ -108,10 +107,15 @@ def setupPythonEnvironment() {
                 echo "Creating new Python virtual environment..."
                 sh """
                     cd ${workspacePath}
+                    echo "Current directory: \$(pwd)"
+                    echo "Python version: \$(python3 --version)"
                     python3 -m venv python_env
                     source python_env/bin/activate
                     pip install --upgrade pip
+                    echo "Installing PyYAML..."
                     pip install PyYAML
+                    # Проверяем установку PyYAML
+                    pip show PyYAML || { echo "PyYAML not installed correctly"; exit 1; }
                 """
             }
         } else {
@@ -119,9 +123,14 @@ def setupPythonEnvironment() {
                 echo "Python environment already exists, updating dependencies..."
                 sh """
                     cd ${workspacePath}
+                    echo "Current directory: \$(pwd)"
+                    echo "Python version: \$(python3 --version)"
                     source python_env/bin/activate
                     pip install --upgrade pip
+                    echo "Installing PyYAML..."
                     pip install PyYAML
+                    # Проверяем установку PyYAML
+                    pip show PyYAML || { echo "PyYAML not installed correctly"; exit 1; }
                 """
             }
         }
@@ -134,11 +143,9 @@ def generateDockerfile(String img, String imagesDir = 'images') {
     def imgDir = getImageDirectory(img)
     def fullPath = "${imagesDir}/${imgDir}"
 
-    // Сохраняем абсолютный путь к workspace
     def workspacePath = pwd()
     def pythonEnvPath = "${workspacePath}/python_env"
 
-    // Проверяем наличие необходимых файлов
     if (!fileExists("${fullPath}/Dockerfile.j2")) {
         error "Dockerfile.j2 not found for image: ${img} in ${fullPath}"
     }
@@ -147,13 +154,16 @@ def generateDockerfile(String img, String imagesDir = 'images') {
         error "config.yaml not found for image: ${img} in ${fullPath}"
     }
 
-    // Копируем скрипт генерации в рабочую директорию образа
     sh "cp generate_dockerfile.py ${fullPath}/"
 
     dir(fullPath) {
-        // Активируем виртуальное окружение используя абсолютный путь и генерируем Dockerfile
         sh """
+            echo "Activating Python environment at: ${pythonEnvPath}"
             source ${pythonEnvPath}/bin/activate
+            # Проверяем установку PyYAML
+            echo "Checking PyYAML installation..."
+            pip show PyYAML || { echo "PyYAML not installed correctly"; exit 1; }
+            echo "Running generate_dockerfile.py..."
             python3 generate_dockerfile.py Dockerfile.j2 config.yaml Dockerfile
         """
 
@@ -165,6 +175,7 @@ def generateDockerfile(String img, String imagesDir = 'images') {
         echo "✅ Dockerfile generated successfully for ${img}"
     }
 }
+
 
 pipeline {
     agent {
