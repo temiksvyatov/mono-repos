@@ -19,35 +19,43 @@ def IMAGE_TAG = 'latest'
 def IMAGES = []
 def PYTHON_ENV_PATH = "${env.WORKSPACE}/python_env_${env.BUILD_ID}"
 
+@NonCPS
 def getImageList(String yamlContent) {
+    def imageList = []
     def yaml = new Yaml()
     def versions = yaml.load(yamlContent)
-    def imagesWithPriority = []
+
+    def imagesWithPriority = [:]
 
     versions.each { img, verList ->
         if (img == 'java') {
             verList.each { subImg, subVerList ->
                 subVerList.each { ver ->
-                    def priority = ver.priority != null ? ver.priority as Integer : 1000
-                    def imageName = "java/${subImg}/${ver.version}"
-                    imagesWithPriority.add([name: imageName, priority: priority])
+                    def priority = (ver.priority != null) ? ver.priority as Integer : 1000
+                    def imageName = "java/${subImg}/${ver.version}" as String
+                    imagesWithPriority[imageName] = priority
                 }
             }
         } else {
             verList.each { ver ->
-                def priority = ver.priority != null ? ver.priority as Integer : 1000
-                def imageName = "${img}/${ver.version}"
-                imagesWithPriority.add([name: imageName, priority: priority])
+                def priority = (ver.priority != null) ? ver.priority as Integer : 1000
+                def imageName = "${img}/${ver.version}" as String
+                imagesWithPriority[imageName] = priority
             }
         }
     }
 
-    def sortedImages = imagesWithPriority.toSorted { a, b ->
-        def priorityComparison = a.priority <=> b.priority
-        priorityComparison != 0 ? priorityComparison : a.name <=> b.name
+    // Сортировка по приоритету и имени образа
+    def sortedImages = imagesWithPriority.entrySet().sort { a, b ->
+        def priorityComparison = a.value.compareTo(b.value)
+        priorityComparison != 0 ? priorityComparison : a.key.compareTo(b.key)
     }
 
-    return sortedImages.collect { it.name }
+    sortedImages.each { entry ->
+        imageList.add(entry.key)
+    }
+
+    return imageList
 }
 
 def getSelectedImages(List allImages) {
