@@ -265,39 +265,39 @@ pipeline {
         }
     }
 
-    // post {
-    //     always {
-    //         script {
-    //             echo "=== Generating Final Report ==="
-    //             generateFinalReport()
+    post {
+        always {
+            script {
+                echo "=== Generating Final Report ==="
+                generateFinalReport()
 
-    //             // Clean up workspace and generated files
-    //             sh "rm -rf generated/ || true"
-    //             cleanWs()
-    //         }
-    //     }
-    //     success {
-    //         script {
-    //             try {
-    //                 def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
-    //                 def message = "✅ Pipeline completed!\n🐳 Built ${imagesToBuild.size()} images\nJob: ${env.JOB_URL}"
-    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-    //             } catch (Exception e) {
-    //                 echo "⚠️ Failed to send notification: ${e.message}"
-    //             }
-    //         }
-    //     }
-    //     failure {
-    //         script {
-    //             try {
-    //                 def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
-    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-    //             } catch (Exception e) {
-    //                 echo "⚠️ Failed to send notification: ${e.message}"
-    //             }
-    //         }
-    //     }
-    // }
+                // Clean up workspace and generated files
+                sh "rm -rf generated/ || true"
+                cleanWs()
+            }
+        }
+        success {
+            script {
+                try {
+                    def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
+                    def message = "✅ Pipeline completed!\n🐳 Built ${imagesToBuild.size()} images\nJob: ${env.JOB_URL}"
+                    externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+                } catch (Exception e) {
+                    echo "⚠️ Failed to send notification: ${e.message}"
+                }
+            }
+        }
+        failure {
+            script {
+                try {
+                    def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
+                    externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+                } catch (Exception e) {
+                    echo "⚠️ Failed to send notification: ${e.message}"
+                }
+            }
+        }
+    }
 }
 
 // ================== FUNCTIONS ==================
