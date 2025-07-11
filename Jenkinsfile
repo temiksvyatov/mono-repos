@@ -68,6 +68,7 @@ pipeline {
                         echo "✓ File found: ${file}"
                     }
 
+                    // Make yq executable
                     sh "chmod +x tools/yq"
 
                     // Read and parse versions.yaml
@@ -76,7 +77,7 @@ pipeline {
                         versionsYaml = readYaml file: 'versions.yaml'
                     } catch (Exception e) {
                         echo "WARNING: readYaml not available, falling back to yq for versions.yaml"
-                        versionsYaml = sh(script: "tools/yq eval -o=json versions.yaml", returnStdout: true).trim()
+                        versionsYaml = sh(script: "./tools/yq eval -o=json versions.yaml", returnStdout: true).trim()
                         versionsYaml = readJSON text: versionsYaml
                     }
                     env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
@@ -148,14 +149,21 @@ pipeline {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
 
                         builderImage.inside() {
-                            // Install required packages if needed
+                            // Install required packages with --user and set PYTHONPATH
                             sh '''
-                                pip install jinja2 pyyaml || echo "Packages already installed"
-                                command -v tools/yq || (echo "Installing yq" && curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq)
+                                export PYTHONPATH=$HOME/.local/lib/python3.11/site-packages:$PYTHONPATH
+                                pip install jinja2 pyyaml || echo "Failed to install packages, proceeding if already installed"
+                                python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
+                                python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
                             '''
 
                             // Generate Dockerfiles
                             def generationResult = generateDockerfiles()
+
+                            // Fail pipeline if no Dockerfiles were generated
+                            if (generationResult.successful.size() == 0) {
+                                error("No Dockerfiles were generated successfully. Aborting pipeline.")
+                            }
 
                             PIPELINE_REPORT.generation = generationResult
 
@@ -402,7 +410,8 @@ def validateFileIntegrity(versionsYaml, imagesToBuild) {
         commonConfig = readYaml file: 'common/config.yaml'
     } catch (Exception e) {
         echo "WARNING: readYaml not available, falling back to yq for config.yaml"
-        commonConfig = sh(script: "tools/yq eval -o=json common/config.yaml", returnStdout: true).trim()
+        sh "chmod +x tools/yq"
+        commonConfig = sh(script: "./tools/yq eval -o=json common/config.yaml", returnStdout: true).trim()
         commonConfig = readJSON text: commonConfig
     }
 
@@ -501,8 +510,9 @@ if __name__ == "__main__":
 
             writeFile file: 'generate_dockerfile.py', text: pythonScript
 
+            // Run Python script with explicit PYTHONPATH
             def result = sh(
-                script: "python generate_dockerfile.py '${image}'",
+                script: "export PYTHONPATH=\$HOME/.local/lib/python3.11/site-packages:\$PYTHONPATH && python3 generate_dockerfile.py '${image}'",
                 returnStatus: true
             )
 
