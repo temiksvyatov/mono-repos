@@ -4,6 +4,62 @@ import com.nmf.ci.utils.ExternalUtils
 def ExternalUtils externalUtils = new ExternalUtils(this)
 def PIPELINE_REPORT = [:]
 
+def setupPythonEnvironment() {
+    echo "=== Setting up Python environment ==="
+
+    def pythonEnvPath = "${env.WORKSPACE}/python_env_${env.BUILD_ID}"
+    env.PYTHON_ENV_PATH = pythonEnvPath // Make variable available in environment
+
+    try {
+        docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+            def dockerImage = params.BUILDER_IMAGE
+
+            // Check if builder image exists
+            def imageExists = sh(
+                script: "docker inspect --type=image ${dockerImage} >/dev/null 2>&1 && echo 'exists' || echo 'missing'",
+                returnStdout: true
+            ).trim()
+
+            if (imageExists == 'missing') {
+                echo "Pulling Docker image: ${dockerImage}"
+                sh "docker pull ${dockerImage}"
+            }
+
+            docker.image(dockerImage).inside("-v ${env.WORKSPACE}:${env.WORKSPACE} -w ${env.WORKSPACE} --entrypoint=''") {
+                def envExists = sh(
+                    script: "[ -d '${pythonEnvPath}' ] && echo 'exists' || echo 'missing'",
+                    returnStdout: true
+                ).trim()
+
+                if (envExists == 'missing') {
+                    echo "Creating new Python virtual environment at ${pythonEnvPath}"
+                    sh """
+                        python3 -m venv '${pythonEnvPath}'
+                        source '${pythonEnvPath}/bin/activate'
+                        pip install --upgrade pip
+                        pip install --quiet jinja2 pyyaml
+                        python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
+                        python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
+                    """
+                } else {
+                    echo "Python environment already exists at ${pythonEnvPath}, checking dependencies..."
+                    sh """
+                        source '${pythonEnvPath}/bin/activate'
+                        pip install --upgrade pip
+                        pip install --quiet jinja2 pyyaml || pip install jinja2 pyyaml
+                        python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
+                        python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
+                    """
+                }
+            }
+        }
+        echo "✅ Python environment ready at: ${pythonEnvPath}"
+    } catch (Exception e) {
+        echo "❌ Failed to setup Python environment: ${e.message}"
+        throw e
+    }
+}
+
 pipeline {
     agent {
         node {
@@ -126,10 +182,14 @@ pipeline {
                         }
                     }
 
+                    // Setup Python environment
+                    setupPythonEnvironment()
+
                     PIPELINE_REPORT.environment = [
                         status: 'SUCCESS',
                         message: 'Environment setup completed successfully',
-                        builderImage: params.BUILDER_IMAGE
+                        builderImage: params.BUILDER_IMAGE,
+                        pythonEnv: env.PYTHON_ENV_PATH
                     ]
 
                     echo "=== Environment Setup Completed ==="
@@ -148,16 +208,8 @@ pipeline {
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
 
-                        builderImage.inside("-v ${workspace}:/workspace -w /workspace --entrypoint=''") {
-                            // Install required packages in virtual environment
-                            sh '''
-                                source /opt/app-root/bin/activate
-                                pip install --quiet jinja2 pyyaml || { echo "Failed to install packages"; exit 1; }
-                                python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
-                                python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
-                            '''
-
-                            // Generate Dockerfiles
+                        builderImage.inside("-v ${env.WORKSPACE}:${env.WORKSPACE} -w ${env.WORKSPACE} --entrypoint=''") {
+                            // Generate Dockerfiles using the virtual environment
                             def generationResult = generateDockerfiles()
 
                             // Fail pipeline if no Dockerfiles were generated
@@ -265,7 +317,7 @@ pipeline {
     //             generateFinalReport()
 
     //             // Clean up workspace and generated files
-    //             sh "rm -rf generated/ || true"
+    //             sh "rm -rf generated/ python_env_${env.BUILD_ID}/ || true"
     //             cleanWs()
     //         }
     //     }
@@ -512,7 +564,7 @@ if __name__ == "__main__":
 
             // Run Python script with virtual environment activated
             def result = sh(
-                script: "source /opt/app-root/bin/activate && python3 generate_dockerfile.py '${image}'",
+                script: "source ${env.PYTHON_ENV_PATH}/bin/activate && python3 generate_dockerfile.py '${image}'",
                 returnStatus: true
             )
 
@@ -829,6 +881,7 @@ Execution Date: ${new Date()}
 Build Mode: ${params.BUILD_MODE}
 Images to Build: ${params.IMAGES_TO_BUILD}
 Maximum Parallel Threads: ${params.MAX_PARALLEL_THREADS}
+Python Environment: ${env.PYTHON_ENV_PATH}
 
 1. INITIAL VALIDATION
    Status: ${PIPELINE_REPORT.validation?.status ?: 'UNKNOWN'}
@@ -839,6 +892,7 @@ Maximum Parallel Threads: ${params.MAX_PARALLEL_THREADS}
    Status: ${PIPELINE_REPORT.environment?.status ?: 'UNKNOWN'}
    Message: ${PIPELINE_REPORT.environment?.message ?: 'No data'}
    Builder Image: ${PIPELINE_REPORT.environment?.builderImage ?: 'N/A'}
+   Python Environment: ${PIPELINE_REPORT.environment?.pythonEnv ?: 'N/A'}
 
 3. DOCKERFILE GENERATION
    Successful: ${PIPELINE_REPORT.generation?.successful?.size() ?: 0}
