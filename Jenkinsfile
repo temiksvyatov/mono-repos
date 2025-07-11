@@ -68,7 +68,14 @@ pipeline {
                     }
 
                     // Read and parse versions.yaml
-                    def versionsYaml = readYaml file: 'versions.yaml'
+                    def versionsYaml
+                    try {
+                        versionsYaml = readYaml file: 'versions.yaml'
+                    } catch (Exception e) {
+                        echo "WARNING: readYaml not available, falling back to yq for versions.yaml"
+                        versionsYaml = sh(script: "yq eval -o=json versions.yaml", returnStdout: true).trim()
+                        versionsYaml = readJSON text: versionsYaml
+                    }
                     env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
 
                     // Determine images to build
@@ -141,6 +148,7 @@ pipeline {
                             // Install required packages if needed
                             sh '''
                                 pip install --quiet jinja2 pyyaml || echo "Packages already installed"
+                                command -v yq || (echo "Installing yq" && curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq)
                             '''
 
                             // Generate Dockerfiles
@@ -239,39 +247,39 @@ pipeline {
         }
     }
 
-    post {
-        always {
-            script {
-                echo "=== Generating Final Report ==="
-                generateFinalReport()
+    // post {
+    //     always {
+    //         script {
+    //             echo "=== Generating Final Report ==="
+    //             generateFinalReport()
 
-                // Clean up workspace and generated files
-                sh "rm -rf generated/ || true"
-                cleanWs()
-            }
-        }
-        success {
-            script {
-                try {
-                    def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
-                    def message = "✅ Pipeline completed!\n🐳 Built ${imagesToBuild.size()} images\nJob: ${env.JOB_URL}"
-                    externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-                } catch (Exception e) {
-                    echo "⚠️ Failed to send notification: ${e.message}"
-                }
-            }
-        }
-        failure {
-            script {
-                try {
-                    def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
-                    externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-                } catch (Exception e) {
-                    echo "⚠️ Failed to send notification: ${e.message}"
-                }
-            }
-        }
-    }
+    //             // Clean up workspace and generated files
+    //             sh "rm -rf generated/ || true"
+    //             cleanWs()
+    //         }
+    //     }
+    //     success {
+    //         script {
+    //             try {
+    //                 def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
+    //                 def message = "✅ Pipeline completed!\n🐳 Built ${imagesToBuild.size()} images\nJob: ${env.JOB_URL}"
+    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+    //             } catch (Exception e) {
+    //                 echo "⚠️ Failed to send notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    //     failure {
+    //         script {
+    //             try {
+    //                 def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
+    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+    //             } catch (Exception e) {
+    //                 echo "⚠️ Failed to send notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 // ================== FUNCTIONS ==================
@@ -386,7 +394,15 @@ def validateFileIntegrity(versionsYaml, imagesToBuild) {
     }
 
     // Validate common/templates/config.yaml
-    def commonConfig = readYaml file: 'common/templates/config.yaml'
+    def commonConfig
+    try {
+        commonConfig = readYaml file: 'common/templates/config.yaml'
+    } catch (Exception e) {
+        echo "WARNING: readYaml not available, falling back to yq for config.yaml"
+        commonConfig = sh(script: "yq eval -o=json common/templates/config.yaml", returnStdout: true).trim()
+        commonConfig = readJSON text: commonConfig
+    }
+
     if (!commonConfig.default) {
         error("Missing default section in common/templates/config.yaml")
     }
