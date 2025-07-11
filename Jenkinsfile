@@ -57,7 +57,8 @@ pipeline {
                     def requiredFiles = [
                         'versions.yaml',
                         'common/templates/Dockerfile.common.j2',
-                        'common/config.yaml'
+                        'common/config.yaml',
+                        'tools/yq'
                     ]
 
                     requiredFiles.each { file ->
@@ -67,10 +68,8 @@ pipeline {
                         echo "✓ File found: ${file}"
                     }
 
-                    // Check for yq binary in repository
-                    if (!fileExists('tools/yq')) {
-                        error("Missing yq binary in tools/yq. Please add it to the repository.")
-                    }
+                    // Make yq executable
+                    sh "chmod +x tools/yq"
 
                     // Read and parse versions.yaml
                     def versionsYaml
@@ -78,7 +77,6 @@ pipeline {
                         versionsYaml = readYaml file: 'versions.yaml'
                     } catch (Exception e) {
                         echo "WARNING: readYaml not available, falling back to yq for versions.yaml"
-                        sh "chmod +x tools/yq"
                         versionsYaml = sh(script: "./tools/yq eval -o=json versions.yaml", returnStdout: true).trim()
                         versionsYaml = readJSON text: versionsYaml
                     }
@@ -151,18 +149,21 @@ pipeline {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
 
                         builderImage.inside("-v ${workspace}:/workspace -w /workspace --entrypoint=''") {
-                            // Install required packages if needed
+                            // Install required packages with --user and set PYTHONPATH
                             sh '''
-                                pip install --user --quiet jinja2 pyyaml || echo "Packages already installed"
-                                if [ ! -f tools/yq ]; then
-                                    echo "ERROR: Missing yq binary in tools/yq. Please add it to the repository."
-                                    exit 1
-                                fi
-                                chmod +x tools/yq
+                                export PYTHONPATH=$HOME/.local/lib/python3.11/site-packages:$PYTHONPATH
+                                pip install --user --quiet jinja2 pyyaml || echo "Failed to install packages, proceeding if already installed"
+                                python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
+                                python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
                             '''
 
                             // Generate Dockerfiles
                             def generationResult = generateDockerfiles()
+
+                            // Fail pipeline if no Dockerfiles were generated
+                            if (generationResult.successful.size() == 0) {
+                                error("No Dockerfiles were generated successfully. Aborting pipeline.")
+                            }
 
                             PIPELINE_REPORT.generation = generationResult
 
@@ -509,8 +510,9 @@ if __name__ == "__main__":
 
             writeFile file: 'generate_dockerfile.py', text: pythonScript
 
+            // Run Python script with explicit PYTHONPATH
             def result = sh(
-                script: "python3 generate_dockerfile.py '${image}'",
+                script: "export PYTHONPATH=\$HOME/.local/lib/python3.11/site-packages:\$PYTHONPATH && python3 generate_dockerfile.py '${image}'",
                 returnStatus: true
             )
 
