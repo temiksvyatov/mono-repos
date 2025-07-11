@@ -2,6 +2,7 @@
 import com.nmf.ci.utils.ExternalUtils
 
 def ExternalUtils externalUtils = new ExternalUtils(this)
+def PIPELINE_REPORT = [:]
 
 pipeline {
     agent {
@@ -10,15 +11,11 @@ pipeline {
         }
     }
 
-    options {
-        timestamps()
-    }
-
     parameters {
         choice(
             name: 'BUILD_MODE',
             choices: ['parallel', 'sequential'],
-            description: 'Image building mode'
+            description: 'Режим сборки образов'
         )
         string(
             name: 'IMAGES_TO_BUILD',
@@ -47,12 +44,8 @@ pipeline {
         )
     }
 
-    environment {
-        PIPELINE_REPORT = [:]
-    }
-
     stages {
-        stage('Initial Check-up') {
+        stage('Первичная проверка') {
             options {
                 timeout(time: 5, unit: 'MINUTES')
             }
@@ -826,7 +819,7 @@ def generateFinalReport() {
 4. СБОРКА ОБРАЗОВ
    Успешно: ${PIPELINE_REPORT.build?.successful?.size() ?: 0}
    Провалено: ${PIPELINE_REPORT.build?.failed?.size() ?: 0}
-   Провальные:84 ${PIPELINE_REPORT.build?.failed?.join(', ') ?: 'Нет'}
+   Провальные: ${PIPELINE_REPORT.build?.failed?.join(', ') ?: 'Нет'}
 
 5. SMOKE-ТЕСТЫ
    Успешно: ${PIPELINE_REPORT.smokeTests?.successful?.size() ?: 0}
