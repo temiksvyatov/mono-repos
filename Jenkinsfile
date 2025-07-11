@@ -2,7 +2,6 @@
 import com.nmf.ci.utils.ExternalUtils
 
 def ExternalUtils externalUtils = new ExternalUtils(this)
-def PIPELINE_REPORT = [:]
 
 pipeline {
     agent {
@@ -45,6 +44,14 @@ pipeline {
     }
 
     stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    PIPELINE_REPORT = [:]
+                    echo "Pipeline report initialized"
+                }
+            }
+        }
         stage('Initial Validation') {
             options {
                 timeout(time: 5, unit: 'MINUTES')
