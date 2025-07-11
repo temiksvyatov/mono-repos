@@ -149,10 +149,10 @@ pipeline {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
 
                         builderImage.inside("-v ${workspace}:/workspace -w /workspace --entrypoint=''") {
-                            // Install required packages with --user and set PYTHONPATH
+                            // Install required packages in virtual environment
                             sh '''
-                                export PYTHONPATH=$HOME/.local/lib/python3.11/site-packages:$PYTHONPATH
-                                pip install --user --quiet jinja2 pyyaml || echo "Failed to install packages, proceeding if already installed"
+                                source /opt/app-root/bin/activate
+                                pip install --quiet jinja2 pyyaml || { echo "Failed to install packages"; exit 1; }
                                 python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
                                 python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
                             '''
@@ -258,39 +258,39 @@ pipeline {
         }
     }
 
-    post {
-        always {
-            script {
-                echo "=== Generating Final Report ==="
-                generateFinalReport()
+    // post {
+    //     always {
+    //         script {
+    //             echo "=== Generating Final Report ==="
+    //             generateFinalReport()
 
-                // Clean up workspace and generated files
-                sh "rm -rf generated/ || true"
-                cleanWs()
-            }
-        }
-        success {
-            script {
-                try {
-                    def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
-                    def message = "✅ Pipeline completed!\n🐳 Built ${imagesToBuild.size()} images\nJob: ${env.JOB_URL}"
-                    externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-                } catch (Exception e) {
-                    echo "⚠️ Failed to send notification: ${e.message}"
-                }
-            }
-        }
-        failure {
-            script {
-                try {
-                    def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
-                    externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-                } catch (Exception e) {
-                    echo "⚠️ Failed to send notification: ${e.message}"
-                }
-            }
-        }
-    }
+    //             // Clean up workspace and generated files
+    //             sh "rm -rf generated/ || true"
+    //             cleanWs()
+    //         }
+    //     }
+    //     success {
+    //         script {
+    //             try {
+    //                 def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
+    //                 def message = "✅ Pipeline completed!\n🐳 Built ${imagesToBuild.size()} images\nJob: ${env.JOB_URL}"
+    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+    //             } catch (Exception e) {
+    //                 echo "⚠️ Failed to send notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    //     failure {
+    //         script {
+    //             try {
+    //                 def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
+    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+    //             } catch (Exception e) {
+    //                 echo "⚠️ Failed to send notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 // ================== FUNCTIONS ==================
@@ -510,9 +510,9 @@ if __name__ == "__main__":
 
             writeFile file: 'generate_dockerfile.py', text: pythonScript
 
-            // Run Python script with explicit PYTHONPATH
+            // Run Python script with virtual environment activated
             def result = sh(
-                script: "export PYTHONPATH=\$HOME/.local/lib/python3.11/site-packages:\$PYTHONPATH && python3 generate_dockerfile.py '${image}'",
+                script: "source /opt/app-root/bin/activate && python3 generate_dockerfile.py '${image}'",
                 returnStatus: true
             )
 
