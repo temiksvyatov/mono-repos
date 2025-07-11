@@ -151,8 +151,10 @@ pipeline {
                         builderImage.inside() {
                             // Install required packages with --user and set PYTHONPATH
                             sh '''
-                                export PYTHONPATH=$HOME/.local/lib/python3.11/site-packages:$PYTHONPATH
-                                pip install jinja2 pyyaml || echo "Failed to install packages, proceeding if already installed"
+                                python3 -m venv '${pythonEnvPath}'
+                                source '${pythonEnvPath}/bin/activate'
+                                pip install --upgrade pip
+                                pip install jinja2 PyYAML || echo "Failed to install packages, proceeding if already installed"
                                 python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
                                 python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
                             '''
