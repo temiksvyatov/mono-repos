@@ -151,7 +151,7 @@ pipeline {
                             // Install required packages if needed
                             sh '''
                                 pip install jinja2 pyyaml || echo "Packages already installed"
-                                command -v yq || (echo "Installing yq" && curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq)
+                                command -v tools/yq || (echo "Installing yq" && curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq)
                             '''
 
                             // Generate Dockerfiles
@@ -402,7 +402,7 @@ def validateFileIntegrity(versionsYaml, imagesToBuild) {
         commonConfig = readYaml file: 'common/config.yaml'
     } catch (Exception e) {
         echo "WARNING: readYaml not available, falling back to yq for config.yaml"
-        commonConfig = sh(script: "yq eval -o=json common/config.yaml", returnStdout: true).trim()
+        commonConfig = sh(script: "tools/yq eval -o=json common/config.yaml", returnStdout: true).trim()
         commonConfig = readJSON text: commonConfig
     }
 
