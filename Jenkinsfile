@@ -4,62 +4,6 @@ import com.nmf.ci.utils.ExternalUtils
 def ExternalUtils externalUtils = new ExternalUtils(this)
 def PIPELINE_REPORT = [:]
 
-def setupPythonEnvironment() {
-    echo "=== Setting up Python environment ==="
-
-    def pythonEnvPath = "${env.WORKSPACE}/python_env_${env.BUILD_ID}"
-    env.PYTHON_ENV_PATH = pythonEnvPath // Make variable available in environment
-
-    try {
-        docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-            def dockerImage = params.BUILDER_IMAGE
-
-            // Check if builder image exists
-            def imageExists = sh(
-                script: "docker inspect --type=image ${dockerImage} >/dev/null 2>&1 && echo 'exists' || echo 'missing'",
-                returnStdout: true
-            ).trim()
-
-            if (imageExists == 'missing') {
-                echo "Pulling Docker image: ${dockerImage}"
-                sh "docker pull ${dockerImage}"
-            }
-
-            docker.image(dockerImage).inside("-v ${env.WORKSPACE}:${env.WORKSPACE} -w ${env.WORKSPACE} --entrypoint=''") {
-                def envExists = sh(
-                    script: "[ -d '${pythonEnvPath}' ] && echo 'exists' || echo 'missing'",
-                    returnStdout: true
-                ).trim()
-
-                if (envExists == 'missing') {
-                    echo "Creating new Python virtual environment at ${pythonEnvPath}"
-                    sh """
-                        python3 -m venv '${pythonEnvPath}'
-                        source '${pythonEnvPath}/bin/activate'
-                        pip install --upgrade pip
-                        pip install --quiet jinja2 pyyaml
-                        python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
-                        python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
-                    """
-                } else {
-                    echo "Python environment already exists at ${pythonEnvPath}, checking dependencies..."
-                    sh """
-                        source '${pythonEnvPath}/bin/activate'
-                        pip install --upgrade pip
-                        pip install --quiet jinja2 pyyaml || pip install jinja2 pyyaml
-                        python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
-                        python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
-                    """
-                }
-            }
-        }
-        echo "✅ Python environment ready at: ${pythonEnvPath}"
-    } catch (Exception e) {
-        echo "❌ Failed to setup Python environment: ${e.message}"
-        throw e
-    }
-}
-
 pipeline {
     agent {
         node {
@@ -113,8 +57,7 @@ pipeline {
                     def requiredFiles = [
                         'versions.yaml',
                         'common/templates/Dockerfile.common.j2',
-                        'common/config.yaml',
-                        'tools/yq'
+                        'common/config.yaml'
                     ]
 
                     requiredFiles.each { file ->
@@ -124,16 +67,13 @@ pipeline {
                         echo "✓ File found: ${file}"
                     }
 
-                    // Make yq executable
-                    sh "chmod +x tools/yq"
-
                     // Read and parse versions.yaml
                     def versionsYaml
                     try {
                         versionsYaml = readYaml file: 'versions.yaml'
                     } catch (Exception e) {
                         echo "WARNING: readYaml not available, falling back to yq for versions.yaml"
-                        versionsYaml = sh(script: "./tools/yq eval -o=json versions.yaml", returnStdout: true).trim()
+                        versionsYaml = sh(script: "yq eval -o=json versions.yaml", returnStdout: true).trim()
                         versionsYaml = readJSON text: versionsYaml
                     }
                     env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
@@ -182,14 +122,10 @@ pipeline {
                         }
                     }
 
-                    // Setup Python environment
-                    setupPythonEnvironment()
-
                     PIPELINE_REPORT.environment = [
                         status: 'SUCCESS',
                         message: 'Environment setup completed successfully',
-                        builderImage: params.BUILDER_IMAGE,
-                        pythonEnv: env.PYTHON_ENV_PATH
+                        builderImage: params.BUILDER_IMAGE
                     ]
 
                     echo "=== Environment Setup Completed ==="
@@ -208,14 +144,15 @@ pipeline {
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
 
-                        builderImage.inside("-v ${env.WORKSPACE}:${env.WORKSPACE} -w ${env.WORKSPACE} --entrypoint=''") {
-                            // Generate Dockerfiles using the virtual environment
-                            def generationResult = generateDockerfiles()
+                        builderImage.inside() {
+                            // Install required packages if needed
+                            sh '''
+                                pip install jinja2 pyyaml || echo "Packages already installed"
+                                command -v yq || (echo "Installing yq" && curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq)
+                            '''
 
-                            // Fail pipeline if no Dockerfiles were generated
-                            if (generationResult.successful.size() == 0) {
-                                error("No Dockerfiles were generated successfully. Aborting pipeline.")
-                            }
+                            // Generate Dockerfiles
+                            def generationResult = generateDockerfiles()
 
                             PIPELINE_REPORT.generation = generationResult
 
@@ -317,7 +254,7 @@ pipeline {
     //             generateFinalReport()
 
     //             // Clean up workspace and generated files
-    //             sh "rm -rf generated/ python_env_${env.BUILD_ID}/ || true"
+    //             sh "rm -rf generated/ || true"
     //             cleanWs()
     //         }
     //     }
@@ -462,8 +399,7 @@ def validateFileIntegrity(versionsYaml, imagesToBuild) {
         commonConfig = readYaml file: 'common/config.yaml'
     } catch (Exception e) {
         echo "WARNING: readYaml not available, falling back to yq for config.yaml"
-        sh "chmod +x tools/yq"
-        commonConfig = sh(script: "./tools/yq eval -o=json common/config.yaml", returnStdout: true).trim()
+        commonConfig = sh(script: "yq eval -o=json common/config.yaml", returnStdout: true).trim()
         commonConfig = readJSON text: commonConfig
     }
 
@@ -562,9 +498,8 @@ if __name__ == "__main__":
 
             writeFile file: 'generate_dockerfile.py', text: pythonScript
 
-            // Run Python script with virtual environment activated
             def result = sh(
-                script: "source ${env.PYTHON_ENV_PATH}/bin/activate && python3 generate_dockerfile.py '${image}'",
+                script: "python generate_dockerfile.py '${image}'",
                 returnStatus: true
             )
 
@@ -881,7 +816,6 @@ Execution Date: ${new Date()}
 Build Mode: ${params.BUILD_MODE}
 Images to Build: ${params.IMAGES_TO_BUILD}
 Maximum Parallel Threads: ${params.MAX_PARALLEL_THREADS}
-Python Environment: ${env.PYTHON_ENV_PATH}
 
 1. INITIAL VALIDATION
    Status: ${PIPELINE_REPORT.validation?.status ?: 'UNKNOWN'}
@@ -892,7 +826,6 @@ Python Environment: ${env.PYTHON_ENV_PATH}
    Status: ${PIPELINE_REPORT.environment?.status ?: 'UNKNOWN'}
    Message: ${PIPELINE_REPORT.environment?.message ?: 'No data'}
    Builder Image: ${PIPELINE_REPORT.environment?.builderImage ?: 'N/A'}
-   Python Environment: ${PIPELINE_REPORT.environment?.pythonEnv ?: 'N/A'}
 
 3. DOCKERFILE GENERATION
    Successful: ${PIPELINE_REPORT.generation?.successful?.size() ?: 0}
