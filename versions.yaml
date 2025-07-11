@@ -1,9 +1,11 @@
 alpine:
   - version: latest
     base_image: docker.nexign.com/alpine:latest
+    priority: 100
 golang:
   - version: latest
     base_image: docker.nexign.com/golang:latest
+    priority: 80
 node:
   - version: 16
     base_image: docker.nexign.com/node:16-alpine
@@ -38,6 +40,7 @@ python:
 nginx:
   - version: latest
     base_image: docker.nexign.com/alpine:latest
+    priority: 10
 jre:
   - version: 11
     base_image: docker.nexign.com/java:11-jre-alpine
