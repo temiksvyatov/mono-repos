@@ -15,22 +15,22 @@ pipeline {
         choice(
             name: 'BUILD_MODE',
             choices: ['parallel', 'sequential'],
-            description: 'Режим сборки образов'
+            description: 'Build mode for images'
         )
         string(
             name: 'IMAGES_TO_BUILD',
             defaultValue: 'all',
-            description: 'Список образов для сборки (all или список через запятую, например: alpine,node/16)'
+            description: 'List of images to build (all or comma-separated list, e.g., alpine,node/16)'
         )
         string(
             name: 'REGISTRY_URL',
             defaultValue: 'https://docker-mf-middle-dev-local.nexign.com',
-            description: 'URL Docker регистра'
+            description: 'Docker registry URL'
         )
         string(
             name: 'REGISTRY_CREDENTIALS',
             defaultValue: 'registry-user-password',
-            description: 'ID учетных данных для Docker регистра'
+            description: 'Credentials ID for Docker registry'
         )
         string(
             name: 'BUILDER_IMAGE',
@@ -45,135 +45,135 @@ pipeline {
     }
 
     stages {
-        stage('Первичная проверка') {
+        stage('Initial Validation') {
             options {
                 timeout(time: 5, unit: 'MINUTES')
             }
             steps {
                 script {
-                    echo "=== Начало первичной проверки ==="
+                    echo "=== Starting Initial Validation ==="
 
-                    // Проверка существования основных файлов
+                    // Check existence of required files
                     def requiredFiles = [
                         'versions.yaml',
                         'common/templates/Dockerfile.common.j2',
-                        'common/templates/config.yaml'
+                        'common/config.yaml'
                     ]
 
                     requiredFiles.each { file ->
                         if (!fileExists(file)) {
-                            error("Отсутствует обязательный файл: ${file}")
+                            error("Required file missing: ${file}")
                         }
-                        echo "✓ Найден файл: ${file}"
+                        echo "✓ File found: ${file}"
                     }
 
-                    // Чтение и парсинг versions.yaml
+                    // Read and parse versions.yaml
                     def versionsYaml = readYaml file: 'versions.yaml'
                     env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
 
-                    // Определение образов для сборки
+                    // Determine images to build
                     def imagesToBuild = determineImagesToBuild(versionsYaml)
                     env.IMAGES_TO_BUILD_LIST = writeJSON returnText: true, json: imagesToBuild
 
-                    echo "Образы для сборки: ${imagesToBuild}"
+                    echo "Images to build: ${imagesToBuild}"
 
-                    // Проверка существования папок образов
+                    // Validate image directories
                     validateImageDirectories(imagesToBuild)
 
-                    // Проверка целостности файлов
+                    // Validate file integrity
                     validateFileIntegrity(versionsYaml, imagesToBuild)
 
                     PIPELINE_REPORT.validation = [
                         status: 'SUCCESS',
-                        message: 'Первичная проверка прошла успешно',
+                        message: 'Initial validation completed successfully',
                         imagesCount: imagesToBuild.size()
                     ]
 
-                    echo "=== Первичная проверка завершена успешно ==="
+                    echo "=== Initial Validation Completed Successfully ==="
                 }
             }
         }
 
-        stage('Настройка окружения') {
+        stage('Environment Setup') {
             options {
                 timeout(time: 10, unit: 'MINUTES')
             }
             steps {
                 script {
-                    echo "=== Настройка окружения ==="
+                    echo "=== Setting Up Environment ==="
 
-                    // Проверка существования builder образа
+                    // Check existence of builder image
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         try {
                             retry(3) {
                                 def builderImage = docker.image(params.BUILDER_IMAGE)
                                 builderImage.pull()
-                                echo "✓ Builder образ найден и загружен: ${params.BUILDER_IMAGE}"
+                                echo "✓ Builder image found and pulled: ${params.BUILDER_IMAGE}"
                             }
                         } catch (Exception e) {
-                            error("Не удалось найти или загрузить builder образ: ${params.BUILDER_IMAGE}. Ошибка: ${e.message}")
+                            error("Failed to find or pull builder image: ${params.BUILDER_IMAGE}. Error: ${e.message}")
                         }
                     }
 
                     PIPELINE_REPORT.environment = [
                         status: 'SUCCESS',
-                        message: 'Окружение настроено успешно',
+                        message: 'Environment setup completed successfully',
                         builderImage: params.BUILDER_IMAGE
                     ]
 
-                    echo "=== Настройка окружения завершена ==="
+                    echo "=== Environment Setup Completed ==="
                 }
             }
         }
 
-        stage('Генерация Dockerfiles') {
+        stage('Generate Dockerfiles') {
             options {
                 timeout(time: 20, unit: 'MINUTES')
             }
             steps {
                 script {
-                    echo "=== Генерация Dockerfiles ==="
+                    echo "=== Generating Dockerfiles ==="
 
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
 
                         builderImage.inside("-v ${workspace}:/workspace -w /workspace") {
-                            // Установка необходимых пакетов если нужно
+                            // Install required packages if needed
                             sh '''
-                                pip install --quiet jinja2 pyyaml || echo "Пакеты уже установлены"
+                                pip install --quiet jinja2 pyyaml || echo "Packages already installed"
                             '''
 
-                            // Генерация Dockerfiles
+                            // Generate Dockerfiles
                             def generationResult = generateDockerfiles()
 
                             PIPELINE_REPORT.generation = generationResult
 
                             if (generationResult.failed.size() > 0) {
-                                echo "ВНИМАНИЕ: Не удалось сгенерировать Dockerfiles для: ${generationResult.failed}"
+                                echo "WARNING: Failed to generate Dockerfiles for: ${generationResult.failed}"
                             }
 
-                            echo "✓ Успешно сгенерировано Dockerfiles: ${generationResult.successful.size()}"
+                            echo "✓ Successfully generated Dockerfiles: ${generationResult.successful.size()}"
                         }
                     }
 
-                    echo "=== Генерация Dockerfiles завершена ==="
+                    echo "=== Dockerfile Generation Completed ==="
                 }
             }
         }
 
-        stage('Сборка образов') {
+        stage('Build Images') {
             options {
                 timeout(time: 30, unit: 'MINUTES')
             }
             steps {
                 script {
-                    echo "=== Сборка образов ==="
+                    echo "=== Building Images ==="
 
                     def versionsData = readJSON text: env.VERSIONS_DATA
                     def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
                     def generationResult = PIPELINE_REPORT.generation
 
-                    // Фильтруем только успешно сгенерированные образы
+                    // Filter only successfully generated images
                     def imagesToBuildFiltered = imagesToBuild.findAll {
                         generationResult.successful.contains(it)
                     }
@@ -183,22 +183,22 @@ pipeline {
                     PIPELINE_REPORT.build = buildResult
 
                     if (buildResult.failed.size() > 0) {
-                        echo "ВНИМАНИЕ: Не удалось собрать образы: ${buildResult.failed}"
+                        echo "WARNING: Failed to build images: ${buildResult.failed}"
                     }
 
-                    echo "✓ Успешно собрано образов: ${buildResult.successful.size()}"
-                    echo "=== Сборка образов завершена ==="
+                    echo "✓ Successfully built images: ${buildResult.successful.size()}"
+                    echo "=== Image Building Completed ==="
                 }
             }
         }
 
-        stage('Smoke-тесты') {
+        stage('Smoke Tests') {
             options {
                 timeout(time: 20, unit: 'MINUTES')
             }
             steps {
                 script {
-                    echo "=== Выполнение Smoke-тестов ==="
+                    echo "=== Running Smoke Tests ==="
 
                     def buildResult = PIPELINE_REPORT.build
                     def testResult = runSmokeTests(buildResult.successful)
@@ -206,22 +206,22 @@ pipeline {
                     PIPELINE_REPORT.smokeTests = testResult
 
                     if (testResult.failed.size() > 0) {
-                        echo "ВНИМАНИЕ: Не прошли smoke-тесты: ${testResult.failed}"
+                        echo "WARNING: Smoke tests failed for: ${testResult.failed}"
                     }
 
-                    echo "✓ Успешно прошли smoke-тесты: ${testResult.successful.size()}"
-                    echo "=== Smoke-тесты завершены ==="
+                    echo "✓ Successfully passed smoke tests: ${testResult.successful.size()}"
+                    echo "=== Smoke Tests Completed ==="
                 }
             }
         }
 
-        stage('Отправка образов в регистр') {
+        stage('Push Images to Registry') {
             options {
                 timeout(time: 20, unit: 'MINUTES')
             }
             steps {
                 script {
-                    echo "=== Отправка образов в регистр ==="
+                    echo "=== Pushing Images to Registry ==="
 
                     def testResult = PIPELINE_REPORT.smokeTests
                     def pushResult = pushImages(testResult.successful)
@@ -229,11 +229,11 @@ pipeline {
                     PIPELINE_REPORT.push = pushResult
 
                     if (pushResult.failed.size() > 0) {
-                        echo "ВНИМАНИЕ: Не удалось отправить образы: ${pushResult.failed}"
+                        echo "WARNING: Failed to push images: ${pushResult.failed}"
                     }
 
-                    echo "✓ Успешно отправлено образов: ${pushResult.successful.size()}"
-                    echo "=== Отправка образов завершена ==="
+                    echo "✓ Successfully pushed images: ${pushResult.successful.size()}"
+                    echo "=== Image Pushing Completed ==="
                 }
             }
         }
@@ -242,10 +242,10 @@ pipeline {
     post {
         always {
             script {
-                echo "=== Генерация итогового отчета ==="
+                echo "=== Generating Final Report ==="
                 generateFinalReport()
 
-                // Очистка workspace и сгенерированных файлов
+                // Clean up workspace and generated files
                 sh "rm -rf generated/ || true"
                 cleanWs()
             }
@@ -274,21 +274,21 @@ pipeline {
     }
 }
 
-// ================== ФУНКЦИИ ==================
+// ================== FUNCTIONS ==================
 
 def determineImagesToBuild(versionsYaml) {
     def imagesToBuild = []
 
-    // Приоритет 1: Проверка изменений в git
+    // Priority 1: Check for changes in Git
     def changedFiles = getChangedFiles()
     def changedImages = getChangedImages(changedFiles)
 
     if (changedImages.size() > 0) {
-        echo "Обнаружены изменения в образах: ${changedImages}"
+        echo "Detected changes in images: ${changedImages}"
         return changedImages
     }
 
-    // Приоритет 2: Параметр IMAGES_TO_BUILD
+    // Priority 2: IMAGES_TO_BUILD parameter
     if (params.IMAGES_TO_BUILD == 'all') {
         versionsYaml.each { key, value ->
             if (value instanceof List) {
@@ -314,7 +314,7 @@ def getChangedFiles() {
         ).trim()
         return changes ? changes.split('\n') : []
     } catch (Exception e) {
-        echo "Не удалось получить измененные файлы: ${e.message}"
+        echo "Failed to retrieve changed files: ${e.message}"
         return []
     }
 }
@@ -344,23 +344,23 @@ def validateImageDirectories(imagesToBuild) {
     imagesToBuild.each { image ->
         def imageDir = "images/${image}"
         if (!fileExists(imageDir)) {
-            error("Отсутствует папка образа: ${imageDir}")
+            error("Image directory missing: ${imageDir}")
         }
 
         def requiredFiles = ['Dockerfile.j2', 'config.yaml']
         requiredFiles.each { file ->
             def filePath = "${imageDir}/${file}"
             if (!fileExists(filePath)) {
-                error("Отсутствует файл: ${filePath}")
+                error("File missing: ${filePath}")
             }
         }
 
-        echo "✓ Проверена папка образа: ${imageDir}"
+        echo "✓ Validated image directory: ${imageDir}"
     }
 }
 
 def validateFileIntegrity(versionsYaml, imagesToBuild) {
-    // Проверка структуры versions.yaml
+    // Validate versions.yaml structure
     imagesToBuild.each { image ->
         def imageParts = image.split('/')
         def imageData = versionsYaml[imageParts[0]]
@@ -370,28 +370,28 @@ def validateFileIntegrity(versionsYaml, imagesToBuild) {
         }
 
         if (!imageData) {
-            error("Образ ${image} не найден в versions.yaml")
+            error("Image ${image} not found in versions.yaml")
         }
 
         if (imageData instanceof List) {
             imageData.each { version ->
                 if (!version.base_image) {
-                    error("Отсутствует base_image для ${image}")
+                    error("Missing base_image for ${image}")
                 }
                 if (!version.version) {
-                    error("Отсутствует version для ${image}")
+                    error("Missing version for ${image}")
                 }
             }
         }
     }
 
-    // Проверка common/templates/config.yaml
+    // Validate common/templates/config.yaml
     def commonConfig = readYaml file: 'common/templates/config.yaml'
     if (!commonConfig.default) {
-        error("Отсутствует секция default в common/templates/config.yaml")
+        error("Missing default section in common/templates/config.yaml")
     }
 
-    echo "✓ Проверка целостности файлов завершена"
+    echo "✓ File integrity validation completed"
 }
 
 def generateDockerfiles() {
@@ -403,9 +403,9 @@ def generateDockerfiles() {
 
     imagesToBuild.each { image ->
         try {
-            echo "Генерация Dockerfile для ${image}"
+            echo "Generating Dockerfile for ${image}"
 
-            // Создание Python скрипта для генерации
+            // Create Python script for generation
             def pythonScript = '''
 import yaml
 import json
@@ -414,13 +414,13 @@ import sys
 from jinja2 import Template
 
 def generate_dockerfile(image_name, image_data, common_config, dockerfile_template):
-    """Генерирует Dockerfile для образа"""
+    """Generates Dockerfile for the image"""
 
-    # Объединение конфигураций
+    # Merge configurations
     final_config = {}
     final_config.update(common_config.get('default', {}))
 
-    # Чтение локальной конфигурации образа
+    # Read local image configuration
     local_config_path = f"images/{image_name}/config.yaml"
     if os.path.exists(local_config_path):
         with open(local_config_path, 'r') as f:
@@ -428,11 +428,11 @@ def generate_dockerfile(image_name, image_data, common_config, dockerfile_templa
             if local_config:
                 final_config.update(local_config)
 
-    # Добавление данных из versions.yaml
+    # Add data from versions.yaml
     final_config.update(image_data)
     final_config['name'] = image_name
 
-    # Генерация Dockerfile
+    # Generate Dockerfile
     template = Template(dockerfile_template)
     dockerfile_content = template.render(**final_config)
 
@@ -441,7 +441,7 @@ def generate_dockerfile(image_name, image_data, common_config, dockerfile_templa
 if __name__ == "__main__":
     image_name = sys.argv[1]
 
-    # Чтение конфигураций
+    # Read configurations
     with open('versions.yaml', 'r') as f:
         versions_data = yaml.safe_load(f)
 
@@ -451,7 +451,7 @@ if __name__ == "__main__":
     with open('common/templates/Dockerfile.common.j2', 'r') as f:
         dockerfile_template = f.read()
 
-    # Получение данных образа
+    # Get image data
     image_parts = image_name.split('/')
     image_data = versions_data[image_parts[0]]
 
@@ -459,11 +459,11 @@ if __name__ == "__main__":
         image_data = image_data[image_parts[1]]
 
     if isinstance(image_data, list):
-        # Для каждой версии
+        # For each version
         for version_data in image_data:
             dockerfile_content = generate_dockerfile(image_name, version_data, common_config, dockerfile_template)
 
-            # Сохранение Dockerfile
+            # Save Dockerfile
             os.makedirs(f"generated/{image_name}/{version_data['version']}", exist_ok=True)
             with open(f"generated/{image_name}/{version_data['version']}/Dockerfile", 'w') as f:
                 f.write(dockerfile_content)
@@ -472,7 +472,7 @@ if __name__ == "__main__":
     else:
         dockerfile_content = generate_dockerfile(image_name, image_data, common_config, dockerfile_template)
 
-        # Сохранение Dockerfile
+        # Save Dockerfile
         os.makedirs(f"generated/{image_name}", exist_ok=True)
         with open(f"generated/{image_name}/Dockerfile", 'w') as f:
             f.write(dockerfile_content)
@@ -489,15 +489,15 @@ if __name__ == "__main__":
 
             if (result == 0) {
                 successful.add(image)
-                echo "✓ Успешно сгенерирован Dockerfile для ${image}"
+                echo "✓ Successfully generated Dockerfile for ${image}"
             } else {
                 failed.add(image)
-                echo "✗ Ошибка генерации Dockerfile для ${image}"
+                echo "✗ Error generating Dockerfile for ${image}"
             }
 
         } catch (Exception e) {
             failed.add(image)
-            echo "✗ Исключение при генерации Dockerfile для ${image}: ${e.message}"
+            echo "✗ Exception while generating Dockerfile for ${image}: ${e.message}"
         }
     }
 
@@ -511,7 +511,7 @@ def buildImages(versionsData, imagesToBuild) {
     def successful = []
     def failed = []
 
-    // Группировка по приоритету
+    // Group by priority
     def imagesByPriority = [:]
 
     imagesToBuild.each { image ->
@@ -533,7 +533,7 @@ def buildImages(versionsData, imagesToBuild) {
         }
     }
 
-    // Сортировка по приоритету
+    // Sort by priority
     def sortedPriorities = imagesByPriority.keySet().sort()
 
     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
@@ -544,7 +544,7 @@ def buildImages(versionsData, imagesToBuild) {
 
             imageGroups.each { group ->
                 if (params.BUILD_MODE == 'parallel') {
-                    // Параллельная сборка
+                    // Parallel build
                     def parallelBuilds = [:]
 
                     group.each { item ->
@@ -556,7 +556,7 @@ def buildImages(versionsData, imagesToBuild) {
 
                     parallel parallelBuilds
                 } else {
-                    // Последовательная сборка
+                    // Sequential build
                     group.each { item ->
                         buildSingleImage(item.image, item.version, successful, failed)
                     }
@@ -575,18 +575,18 @@ def buildSingleImage(imageName, versionData, successful, failed) {
     try {
         def imageTag = "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/${imageName.replace('/', '-')}:${versionData.version}"
 
-        // Валидация имени тега
+        // Validate image tag
         if (!imageTag.matches('^[a-zA-Z0-9][a-zA-Z0-9_.-]*(?::[a-zA-Z0-9][a-zA-Z0-9_.-]*)?$')) {
-            throw new Exception("Недопустимое имя тега образа: ${imageTag}")
+            throw new Exception("Invalid image tag name: ${imageTag}")
         }
 
         def dockerfilePath = "generated/${imageName}/${versionData.version}/Dockerfile"
 
         if (!fileExists(dockerfilePath)) {
-            throw new Exception("Dockerfile не найден: ${dockerfilePath}")
+            throw new Exception("Dockerfile not found: ${dockerfilePath}")
         }
 
-        echo "Сборка образа: ${imageTag}"
+        echo "Building image: ${imageTag}"
 
         def buildResult = sh(
             script: "docker build -t ${imageTag} -f ${dockerfilePath} .",
@@ -595,15 +595,15 @@ def buildSingleImage(imageName, versionData, successful, failed) {
 
         if (buildResult == 0) {
             successful.add(imageTag)
-            echo "✓ Успешно собран образ: ${imageTag}"
+            echo "✓ Successfully built image: ${imageTag}"
         } else {
             failed.add(imageTag)
-            echo "✗ Ошибка сборки образа: ${imageTag}"
+            echo "✗ Error building image: ${imageTag}"
         }
 
     } catch (Exception e) {
         failed.add("${imageName}:${versionData.version}")
-        echo "✗ Исключение при сборке образа ${imageName}:${versionData.version}: ${e.message}"
+        echo "✗ Exception while building image ${imageName}:${versionData.version}: ${e.message}"
     }
 }
 
@@ -613,21 +613,21 @@ def runSmokeTests(builtImages) {
 
     builtImages.each { image ->
         try {
-            echo "Выполнение smoke-теста для ${image}"
+            echo "Running smoke test for ${image}"
 
             def testResult = runSmokeTestForImage(image)
 
             if (testResult) {
                 successful.add(image)
-                echo "✓ Smoke-тест прошел для ${image}"
+                echo "✓ Smoke test passed for ${image}"
             } else {
                 failed.add(image)
-                echo "✗ Smoke-тест не прошел для ${image}"
+                echo "✗ Smoke test failed for ${image}"
             }
 
         } catch (Exception e) {
             failed.add(image)
-            echo "✗ Исключение при выполнении smoke-теста для ${image}: ${e.message}"
+            echo "✗ Exception while running smoke test for ${image}: ${e.message}"
         }
     }
 
@@ -666,7 +666,7 @@ import os
 print(f'Python version: {sys.version}')
 print(f'User: {os.getuid()}')
 print(f'Working directory: {os.getcwd()}')
-# Проверка установленных пакетов
+# Check installed packages
 import subprocess
 result = subprocess.run(['pip', 'list'], capture_output=True, text=True)
 print(f'Installed packages: {len(result.stdout.splitlines())} packages')
@@ -761,7 +761,7 @@ def pushImages(testedImages) {
     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
         testedImages.each { image ->
             try {
-                echo "Отправка образа: ${image}"
+                echo "Pushing image: ${image}"
 
                 retry(3) {
                     def pushResult = sh(
@@ -771,17 +771,17 @@ def pushImages(testedImages) {
 
                     if (pushResult == 0) {
                         successful.add(image)
-                        echo "✓ Успешно отправлен образ: ${image}"
+                        echo "✓ Successfully pushed image: ${image}"
                     } else {
                         failed.add(image)
-                        echo "✗ Ошибка отправки образа: ${image}"
+                        echo "✗ Error pushing image: ${image}"
                         error("Push failed for ${image}")
                     }
                 }
 
             } catch (Exception e) {
                 failed.add(image)
-                echo "✗ Исключение при отправке образа ${image}: ${e.message}"
+                echo "✗ Exception while pushing image ${image}: ${e.message}"
             }
         }
     }
@@ -794,51 +794,51 @@ def pushImages(testedImages) {
 
 def generateFinalReport() {
     def report = """
-=== ИТОГОВЫЙ ОТЧЕТ ПАЙПЛАЙНА ===
+=== FINAL PIPELINE REPORT ===
 
-Дата выполнения: ${new Date()}
-Режим сборки: ${params.BUILD_MODE}
-Образы для сборки: ${params.IMAGES_TO_BUILD}
-Максимальное количество потоков: ${params.MAX_PARALLEL_THREADS}
+Execution Date: ${new Date()}
+Build Mode: ${params.BUILD_MODE}
+Images to Build: ${params.IMAGES_TO_BUILD}
+Maximum Parallel Threads: ${params.MAX_PARALLEL_THREADS}
 
-1. ПЕРВИЧНАЯ ПРОВЕРКА
-   Статус: ${PIPELINE_REPORT.validation?.status ?: 'UNKNOWN'}
-   Сообщение: ${PIPELINE_REPORT.validation?.message ?: 'Нет данных'}
-   Количество образов: ${PIPELINE_REPORT.validation?.imagesCount ?: 'N/A'}
+1. INITIAL VALIDATION
+   Status: ${PIPELINE_REPORT.validation?.status ?: 'UNKNOWN'}
+   Message: ${PIPELINE_REPORT.validation?.message ?: 'No data'}
+   Image Count: ${PIPELINE_REPORT.validation?.imagesCount ?: 'N/A'}
 
-2. НАСТРОЙКА ОКРУЖЕНИЯ
-   Статус: ${PIPELINE_REPORT.environment?.status ?: 'UNKNOWN'}
-   Сообщение: ${PIPELINE_REPORT.environment?.message ?: 'Нет данных'}
-   Builder образ: ${PIPELINE_REPORT.environment?.builderImage ?: 'N/A'}
+2. ENVIRONMENT SETUP
+   Status: ${PIPELINE_REPORT.environment?.status ?: 'UNKNOWN'}
+   Message: ${PIPELINE_REPORT.environment?.message ?: 'No data'}
+   Builder Image: ${PIPELINE_REPORT.environment?.builderImage ?: 'N/A'}
 
-3. ГЕНЕРАЦИЯ DOCKERFILES
-   Успешно: ${PIPELINE_REPORT.generation?.successful?.size() ?: 0}
-   Провалено: ${PIPELINE_REPORT.generation?.failed?.size() ?: 0}
-   Провальные: ${PIPELINE_REPORT.generation?.failed?.join(', ') ?: 'Нет'}
+3. DOCKERFILE GENERATION
+   Successful: ${PIPELINE_REPORT.generation?.successful?.size() ?: 0}
+   Failed: ${PIPELINE_REPORT.generation?.failed?.size() ?: 0}
+   Failed Images: ${PIPELINE_REPORT.generation?.failed?.join(', ') ?: 'None'}
 
-4. СБОРКА ОБРАЗОВ
-   Успешно: ${PIPELINE_REPORT.build?.successful?.size() ?: 0}
-   Провалено: ${PIPELINE_REPORT.build?.failed?.size() ?: 0}
-   Провальные: ${PIPELINE_REPORT.build?.failed?.join(', ') ?: 'Нет'}
+4. IMAGE BUILDING
+   Successful: ${PIPELINE_REPORT.build?.successful?.size() ?: 0}
+   Failed: ${PIPELINE_REPORT.build?.failed?.size() ?: 0}
+   Failed Images: ${PIPELINE_REPORT.build?.failed?.join(', ') ?: 'None'}
 
-5. SMOKE-ТЕСТЫ
-   Успешно: ${PIPELINE_REPORT.smokeTests?.successful?.size() ?: 0}
-   Провалено: ${PIPELINE_REPORT.smokeTests?.failed?.size() ?: 0}
-   Провальные: ${PIPELINE_REPORT.smokeTests?.failed?.join(', ') ?: 'Нет'}
+5. SMOKE TESTS
+   Successful: ${PIPELINE_REPORT.smokeTests?.successful?.size() ?: 0}
+   Failed: ${PIPELINE_REPORT.smokeTests?.failed?.size() ?: 0}
+   Failed Images: ${PIPELINE_REPORT.smokeTests?.failed?.join(', ') ?: 'None'}
 
-6. ОТПРАВКА В РЕГИСТР
-   Успешно: ${PIPELINE_REPORT.push?.successful?.size() ?: 0}
-   Провалено: ${PIPELINE_REPORT.push?.failed?.size() ?: 0}
-   Провальные: ${PIPELINE_REPORT.push?.failed?.join(', ') ?: 'Нет'}
+6. PUSH TO REGISTRY
+   Successful: ${PIPELINE_REPORT.push?.successful?.size() ?: 0}
+   Failed: ${PIPELINE_REPORT.push?.failed?.size() ?: 0}
+   Failed Images: ${PIPELINE_REPORT.push?.failed?.join(', ') ?: 'None'}
 
-=== КОНЕЦ ОТЧЕТА ===
+=== END OF REPORT ===
 """
 
     echo report
 
-    // Сохранение отчета в файл
+    // Save report to file
     writeFile file: 'pipeline_report.txt', text: report
 
-    // Архивирование отчета
+    // Archive report
     archiveArtifacts artifacts: 'pipeline_report.txt', allowEmptyArchive: true
 }
