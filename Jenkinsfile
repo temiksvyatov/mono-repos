@@ -67,13 +67,19 @@ pipeline {
                         echo "✓ File found: ${file}"
                     }
 
+                    // Check for yq binary in repository
+                    if (!fileExists('tools/yq')) {
+                        error("Missing yq binary in tools/yq. Please add it to the repository.")
+                    }
+
                     // Read and parse versions.yaml
                     def versionsYaml
                     try {
                         versionsYaml = readYaml file: 'versions.yaml'
                     } catch (Exception e) {
                         echo "WARNING: readYaml not available, falling back to yq for versions.yaml"
-                        versionsYaml = sh(script: "yq eval -o=json versions.yaml", returnStdout: true).trim()
+                        sh "chmod +x tools/yq"
+                        versionsYaml = sh(script: "./tools/yq eval -o=json versions.yaml", returnStdout: true).trim()
                         versionsYaml = readJSON text: versionsYaml
                     }
                     env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
@@ -144,11 +150,15 @@ pipeline {
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
 
-                        builderImage.inside("-v ${workspace}:/workspace -w /workspace") {
+                        builderImage.inside("-v ${workspace}:/workspace -w /workspace --entrypoint=''") {
                             // Install required packages if needed
                             sh '''
-                                pip install --quiet jinja2 pyyaml || echo "Packages already installed"
-                                command -v yq || (echo "Installing yq" && curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq)
+                                pip install --user --quiet jinja2 pyyaml || echo "Packages already installed"
+                                if [ ! -f tools/yq ]; then
+                                    echo "ERROR: Missing yq binary in tools/yq. Please add it to the repository."
+                                    exit 1
+                                fi
+                                chmod +x tools/yq
                             '''
 
                             // Generate Dockerfiles
@@ -247,39 +257,39 @@ pipeline {
         }
     }
 
-    // post {
-    //     always {
-    //         script {
-    //             echo "=== Generating Final Report ==="
-    //             generateFinalReport()
+    post {
+        always {
+            script {
+                echo "=== Generating Final Report ==="
+                generateFinalReport()
 
-    //             // Clean up workspace and generated files
-    //             sh "rm -rf generated/ || true"
-    //             cleanWs()
-    //         }
-    //     }
-    //     success {
-    //         script {
-    //             try {
-    //                 def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
-    //                 def message = "✅ Pipeline completed!\n🐳 Built ${imagesToBuild.size()} images\nJob: ${env.JOB_URL}"
-    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-    //             } catch (Exception e) {
-    //                 echo "⚠️ Failed to send notification: ${e.message}"
-    //             }
-    //         }
-    //     }
-    //     failure {
-    //         script {
-    //             try {
-    //                 def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
-    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-    //             } catch (Exception e) {
-    //                 echo "⚠️ Failed to send notification: ${e.message}"
-    //             }
-    //         }
-    //     }
-    // }
+                // Clean up workspace and generated files
+                sh "rm -rf generated/ || true"
+                cleanWs()
+            }
+        }
+        success {
+            script {
+                try {
+                    def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
+                    def message = "✅ Pipeline completed!\n🐳 Built ${imagesToBuild.size()} images\nJob: ${env.JOB_URL}"
+                    externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+                } catch (Exception e) {
+                    echo "⚠️ Failed to send notification: ${e.message}"
+                }
+            }
+        }
+        failure {
+            script {
+                try {
+                    def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
+                    externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+                } catch (Exception e) {
+                    echo "⚠️ Failed to send notification: ${e.message}"
+                }
+            }
+        }
+    }
 }
 
 // ================== FUNCTIONS ==================
@@ -399,7 +409,8 @@ def validateFileIntegrity(versionsYaml, imagesToBuild) {
         commonConfig = readYaml file: 'common/config.yaml'
     } catch (Exception e) {
         echo "WARNING: readYaml not available, falling back to yq for config.yaml"
-        commonConfig = sh(script: "yq eval -o=json common/config.yaml", returnStdout: true).trim()
+        sh "chmod +x tools/yq"
+        commonConfig = sh(script: "./tools/yq eval -o=json common/config.yaml", returnStdout: true).trim()
         commonConfig = readJSON text: commonConfig
     }
 
@@ -499,7 +510,7 @@ if __name__ == "__main__":
             writeFile file: 'generate_dockerfile.py', text: pythonScript
 
             def result = sh(
-                script: "python generate_dockerfile.py '${image}'",
+                script: "python3 generate_dockerfile.py '${image}'",
                 returnStatus: true
             )
 
