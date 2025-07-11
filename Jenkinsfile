@@ -393,18 +393,18 @@ def validateFileIntegrity(versionsYaml, imagesToBuild) {
         }
     }
 
-    // Validate common/templates/config.yaml
+    // Validate common/config.yaml
     def commonConfig
     try {
-        commonConfig = readYaml file: 'common/templates/config.yaml'
+        commonConfig = readYaml file: 'common/config.yaml'
     } catch (Exception e) {
         echo "WARNING: readYaml not available, falling back to yq for config.yaml"
-        commonConfig = sh(script: "yq eval -o=json common/templates/config.yaml", returnStdout: true).trim()
+        commonConfig = sh(script: "yq eval -o=json common/config.yaml", returnStdout: true).trim()
         commonConfig = readJSON text: commonConfig
     }
 
     if (!commonConfig.default) {
-        error("Missing default section in common/templates/config.yaml")
+        error("Missing default section in common/config.yaml")
     }
 
     echo "✓ File integrity validation completed"
@@ -461,7 +461,7 @@ if __name__ == "__main__":
     with open('versions.yaml', 'r') as f:
         versions_data = yaml.safe_load(f)
 
-    with open('common/templates/config.yaml', 'r') as f:
+    with open('common/config.yaml', 'r') as f:
         common_config = yaml.safe_load(f)
 
     with open('common/templates/Dockerfile.common.j2', 'r') as f:
