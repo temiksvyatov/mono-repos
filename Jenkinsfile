@@ -149,20 +149,25 @@ pipeline {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
 
                         builderImage.inside() {
-                            // Install required packages with --user and set PYTHONPATH
+                            // Создаем виртуальное окружение и устанавливаем пакеты
                             sh '''
-                                python3 -m venv '${pythonEnvPath}'
-                                source '${pythonEnvPath}/bin/activate'
+                                # Создаем виртуальное окружение
+                                python3 -m venv venv
+                                source venv/bin/activate
+
+                                # Обновляем pip и устанавливаем пакеты
                                 pip install --upgrade pip
-                                pip install jinja2 PyYAML || echo "Failed to install packages, proceeding if already installed"
-                                python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
-                                python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
+                                pip install jinja2 PyYAML
+
+                                # Проверяем установку
+                                python3 -c "import yaml; print('PyYAML installed successfully')"
+                                python3 -c "import jinja2; print('Jinja2 installed successfully')"
                             '''
 
-                            // Generate Dockerfiles
+                            // Генерируем Dockerfiles
                             def generationResult = generateDockerfiles()
 
-                            // Fail pipeline if no Dockerfiles were generated
+                            // Проверяем результат
                             if (generationResult.successful.size() == 0) {
                                 error("No Dockerfiles were generated successfully. Aborting pipeline.")
                             }
@@ -435,7 +440,7 @@ def generateDockerfiles() {
         try {
             echo "Generating Dockerfile for ${image}"
 
-            // Create Python script for generation
+            // Создаем Python-скрипт для генерации
             def pythonScript = '''
 import yaml
 import json
@@ -512,9 +517,12 @@ if __name__ == "__main__":
 
             writeFile file: 'generate_dockerfile.py', text: pythonScript
 
-            // Run Python script with explicit PYTHONPATH
+            // Выполняем Python-скрипт с активированным виртуальным окружением
             def result = sh(
-                script: "export PYTHONPATH=\$HOME/.local/lib/python3.11/site-packages:\$PYTHONPATH && python3 generate_dockerfile.py '${image}'",
+                script: """
+                    source venv/bin/activate
+                    python3 generate_dockerfile.py '${image}'
+                """,
                 returnStatus: true
             )
 
