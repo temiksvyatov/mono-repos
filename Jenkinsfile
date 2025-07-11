@@ -57,7 +57,8 @@ pipeline {
                     def requiredFiles = [
                         'versions.yaml',
                         'common/templates/Dockerfile.common.j2',
-                        'common/config.yaml'
+                        'common/config.yaml',
+                        'tools/yq'
                     ]
 
                     requiredFiles.each { file ->
@@ -67,13 +68,15 @@ pipeline {
                         echo "✓ File found: ${file}"
                     }
 
+                    sh "chmod +x tools/yq"
+
                     // Read and parse versions.yaml
                     def versionsYaml
                     try {
                         versionsYaml = readYaml file: 'versions.yaml'
                     } catch (Exception e) {
                         echo "WARNING: readYaml not available, falling back to yq for versions.yaml"
-                        versionsYaml = sh(script: "yq eval -o=json versions.yaml", returnStdout: true).trim()
+                        versionsYaml = sh(script: "tools/yq eval -o=json versions.yaml", returnStdout: true).trim()
                         versionsYaml = readJSON text: versionsYaml
                     }
                     env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
