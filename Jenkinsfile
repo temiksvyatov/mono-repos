@@ -217,8 +217,9 @@ pipeline {
 
                     PIPELINE_REPORT.build = buildResult
 
-                    // Update PIPELINE_REPORT in env
-                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                    if (buildResult.successful.size() == 0) {
+                        error("No images were built successfully. Aborting pipeline.")
+                    }
 
                     if (buildResult.failed.size() > 0) {
                         echo "WARNING: Failed to build images: ${buildResult.failed}"
@@ -662,19 +663,13 @@ def buildSingleImage(imageName, versionData, successful, failed) {
     try {
         def imageTag = "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/${imageName.replace('/', '-')}:${versionData.version}"
 
-        // Validate image tag
-        if (!imageTag.matches('^[a-zA-Z0-9][a-zA-Z0-9_./-]*(?::[a-zA-Z0-9][a-zA-Z0-9_.-]*)?$')) {
-            throw new Exception("Invalid image tag name: ${imageTag}")
-        }
-
         def dockerfilePath = "generated/${imageName}/${versionData.version}/Dockerfile"
-
+        echo "Checking Dockerfile existence at: ${dockerfilePath}"
         if (!fileExists(dockerfilePath)) {
-            throw new Exception("Dockerfile not found: ${dockerfilePath}")
+            error("Dockerfile not found at: ${dockerfilePath}")
         }
 
         echo "Building image: ${imageTag}"
-
         def buildResult = sh(
             script: "docker build -t ${imageTag} -f ${dockerfilePath} .",
             returnStatus: true
@@ -686,8 +681,9 @@ def buildSingleImage(imageName, versionData, successful, failed) {
         } else {
             failed.add(imageTag)
             echo "✗ Error building image: ${imageTag}"
+            // Вывод логов сборки для диагностики
+            sh "docker build -t ${imageTag} -f ${dockerfilePath} . || true"
         }
-
     } catch (Exception e) {
         failed.add("${imageName}:${versionData.version}")
         echo "✗ Exception while building image ${imageName}:${versionData.version}: ${e.message}"
