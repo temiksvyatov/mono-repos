@@ -42,11 +42,6 @@ pipeline {
             defaultValue: '10',
             description: 'Maximum parallel build threads'
         )
-        booleanParam(
-            name: 'GENERATE_REPORT',
-            defaultValue: true,
-            description: 'Generate and save pipeline report'
-        )
     }
 
     stages {
@@ -56,7 +51,6 @@ pipeline {
             }
             steps {
                 script {
-                    PIPELINE_REPORT.validation = [startTime: new Date()]
                     echo "=== Starting Initial Validation ==="
 
                     // Check existence of required files
@@ -100,21 +94,16 @@ pipeline {
                     // Validate file integrity
                     validateFileIntegrity(versionsYaml, imagesToBuild)
 
-                    PIPELINE_REPORT.validation += [
+                    PIPELINE_REPORT.validation = [
                         status: 'SUCCESS',
                         message: 'Initial validation completed successfully',
-                        imagesCount: imagesToBuild.size(),
-                        endTime: new Date()
+                        imagesCount: imagesToBuild.size()
                     ]
 
+                    // Save PIPELINE_REPORT to env
+                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+
                     echo "=== Initial Validation Completed Successfully ==="
-                }
-            }
-            post {
-                failure {
-                    script {
-                        PIPELINE_REPORT.validation += [status: 'FAILURE', endTime: new Date()]
-                    }
                 }
             }
         }
@@ -125,7 +114,6 @@ pipeline {
             }
             steps {
                 script {
-                    PIPELINE_REPORT.environment = [startTime: new Date()]
                     echo "=== Setting Up Environment ==="
 
                     // Check existence of builder image
@@ -141,21 +129,16 @@ pipeline {
                         }
                     }
 
-                    PIPELINE_REPORT.environment += [
+                    PIPELINE_REPORT.environment = [
                         status: 'SUCCESS',
                         message: 'Environment setup completed successfully',
-                        builderImage: params.BUILDER_IMAGE,
-                        endTime: new Date()
+                        builderImage: params.BUILDER_IMAGE
                     ]
 
+                    // Update PIPELINE_REPORT in env
+                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+
                     echo "=== Environment Setup Completed ==="
-                }
-            }
-            post {
-                failure {
-                    script {
-                        PIPELINE_REPORT.environment += [status: 'FAILURE', endTime: new Date()]
-                    }
                 }
             }
         }
@@ -166,36 +149,36 @@ pipeline {
             }
             steps {
                 script {
-                    PIPELINE_REPORT.generation = [startTime: new Date()]
                     echo "=== Generating Dockerfiles ==="
 
-                    docker.withRegistry(params.REGISTRY_URL, params Annieparams.REGISTRY_CREDENTIALS) {
+                    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
 
                         builderImage.inside() {
-                            // Install required packages with --user and set PYTHONPATH
+                            // Create virtual environment and install packages
                             sh '''
-                                python3 -m venv '${pythonEnvPath}'
-                                source '${pythonEnvPath}/bin/activate'
+                                python3 -m venv venv
+                                source venv/bin/activate
                                 pip install --upgrade pip
-                                pip install jinja2 PyYAML || echo "Failed to install packages, proceeding if already installed"
-                                python3 -c "import yaml" || { echo "ERROR: pyyaml not installed"; exit 1; }
-                                python3 -c "import jinja2" || { echo "ERROR: jinja2 not installed"; exit 1; }
+                                pip install jinja2 PyYAML
+                                python3 -c "import yaml; print('PyYAML installed successfully')"
+                                python3 -c "import jinja2; print('Jinja2 installed successfully')"
                             '''
 
                             // Generate Dockerfiles
                             def generationResult = generateDockerfiles()
 
-                            // Fail pipeline if no Dockerfiles were generated
+                            // Check result
                             if (generationResult.successful.size() == 0) {
                                 error("No Dockerfiles were generated successfully. Aborting pipeline.")
                             }
 
-                            PIPELINE_REPORT.generation += generationResult
-                            PIPELINE_REPORT.generation += [endTime: new Date()]
+                            PIPELINE_REPORT.generation = generationResult
+
+                            // Update PIPELINE_REPORT in env
+                            env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
 
                             if (generationResult.failed.size() > 0) {
-                                PIPELINE_REPORT.generation += [errorDetails: "Failed to generate Dockerfiles for: ${generationResult.failed.join(', ')}"]
                                 echo "WARNING: Failed to generate Dockerfiles for: ${generationResult.failed}"
                             }
 
@@ -206,13 +189,6 @@ pipeline {
                     echo "=== Dockerfile Generation Completed ==="
                 }
             }
-            post {
-                failure {
-                    script {
-                        PIPELINE_REPORT.generation += [status: 'FAILURE', endTime: new Date()]
-                    }
-                }
-            }
         }
 
         stage('Build Images') {
@@ -221,7 +197,6 @@ pipeline {
             }
             steps {
                 script {
-                    PIPELINE_REPORT.build = [startTime: new Date()]
                     echo "=== Building Images ==="
 
                     def versionsData = readJSON text: env.VERSIONS_DATA
@@ -235,23 +210,17 @@ pipeline {
 
                     def buildResult = buildImages(versionsData, imagesToBuildFiltered)
 
-                    PIPELINE_REPORT.build += buildResult
-                    PIPELINE_REPORT.build += [endTime: new Date()]
+                    PIPELINE_REPORT.build = buildResult
+
+                    // Update PIPELINE_REPORT in env
+                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
 
                     if (buildResult.failed.size() > 0) {
-                        PIPELINE_REPORT.build += [errorDetails: "Failed to build images: ${buildResult.failed.join(', ')}"]
                         echo "WARNING: Failed to build images: ${buildResult.failed}"
                     }
 
                     echo "✓ Successfully built images: ${buildResult.successful.size()}"
                     echo "=== Image Building Completed ==="
-                }
-            }
-            post {
-                failure {
-                    script {
-                        PIPELINE_REPORT.build += [status: 'FAILURE', endTime: new Date()]
-                    }
                 }
             }
         }
@@ -262,29 +231,22 @@ pipeline {
             }
             steps {
                 script {
-                    PIPELINE_REPORT.smokeTests = [startTime: new Date()]
                     echo "=== Running Smoke Tests ==="
 
                     def buildResult = PIPELINE_REPORT.build
                     def testResult = runSmokeTests(buildResult.successful)
 
-                    PIPELINE_REPORT.smokeTests += testResult
-                    PIPELINE_REPORT.smokeTests += [endTime: new Date()]
+                    PIPELINE_REPORT.smokeTests = testResult
+
+                    // Update PIPELINE_REPORT in env
+                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
 
                     if (testResult.failed.size() > 0) {
-                        PIPELINE_REPORT.smokeTests += [errorDetails: "Smoke tests failed for: ${testResult.failed.join(', ')}"]
                         echo "WARNING: Smoke tests failed for: ${testResult.failed}"
                     }
 
                     echo "✓ Successfully passed smoke tests: ${testResult.successful.size()}"
                     echo "=== Smoke Tests Completed ==="
-                }
-            }
-            post {
-                failure {
-                    script {
-                        PIPELINE_REPORT.smokeTests += [status: 'FAILURE', endTime: new Date()]
-                    }
                 }
             }
         }
@@ -295,17 +257,17 @@ pipeline {
             }
             steps {
                 script {
-                    PIPELINE_REPORT.push = [startTime: new Date()]
                     echo "=== Pushing Images to Registry ==="
 
                     def testResult = PIPELINE_REPORT.smokeTests
                     def pushResult = pushImages(testResult.successful)
 
-                    PIPELINE_REPORT.push += pushResult
-                    PIPELINE_REPORT.push += [endTime: new Date()]
+                    PIPELINE_REPORT.push = pushResult
+
+                    // Update PIPELINE_REPORT in env
+                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
 
                     if (pushResult.failed.size() > 0) {
-                        PIPELINE_REPORT.push += [errorDetails: "Failed to push images: ${pushResult.failed.join(', ')}"]
                         echo "WARNING: Failed to push images: ${pushResult.failed}"
                     }
 
@@ -313,60 +275,42 @@ pipeline {
                     echo "=== Image Pushing Completed ==="
                 }
             }
-            post {
-                failure {
-                    script {
-                        PIPELINE_REPORT.push += [status: 'FAILURE', endTime: new Date()]
-                    }
-                }
-            }
         }
     }
 
-    post {
-        always {
-            script {
-                if (params.GENERATE_REPORT) {
-                    generateFinalReport()
-                    archiveArtifacts artifacts: 'pipeline_report.txt', allowEmptyArchive: true
-                }
-                sh "rm -rf generated/ || true"
-                cleanWs()
-            }
-        }
-        success {
-            script {
-                if (params.GENERATE_REPORT) {
-                    def imagesBuilt = PIPELINE_REPORT.push?.successful ?: []
-                    def message = "✅ Пайплайн успешно завершен!\nПостроено ${imagesBuilt.size()} образов: ${imagesBuilt.join(', ')}"
-                    try {
-                        externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-                    } catch (Exception e) {
-                        echo "⚠️ Не удалось отправить уведомление: ${e.message}"
-                        // Записываем ошибку в лог для отладки
-                        writeFile file: 'notification_error.log', text: "Failed to send success notification: ${e.message}"
-                        archiveArtifacts artifacts: 'notification_error.log', allowEmptyArchive: true
-                    }
-                }
-            }
-        }
-        failure {
-            script {
-                if (params.GENERATE_REPORT) {
-                    def failedStage = PIPELINE_REPORT.find { it.value.status == 'FAILURE' }?.key?.toUpperCase() ?: 'Unknown'
-                    def message = "❌ Пайплайн провалился на этапе: ${failedStage}"
-                    try {
-                        externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-                    } catch (Exception e) {
-                        echo "⚠️ Не удалось отправить уведомление: ${e.message}"
-                        // Записываем ошибку в лог для отладки
-                        writeFile file: 'notification_error.log', text: "Failed to send failure notification: ${e.message}"
-                        archiveArtifacts artifacts: 'notification_error.log', allowEmptyArchive: true
-                    }
-                }
-            }
-        }
-    }
+    // post {
+    //     always {
+    //         script {
+    //             echo "=== Generating Final Report ==="
+    //             generateFinalReport()
+
+    //             // Clean up workspace and generated files
+    //             sh "rm -rf generated/ venv/ || true"
+    //             cleanWs()
+    //         }
+    //     }
+    //     success {
+    //         script {
+    //             try {
+    //                 def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
+    //                 def message = "✅ Pipeline completed!\n🐳 Built ${imagesToBuild.size()} images\nJob: ${env.JOB_URL}"
+    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+    //             } catch (Exception e) {
+    //                 echo "⚠️ Failed to send notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    //     failure {
+    //         script {
+    //             try {
+    //                 def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
+    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
+    //             } catch (Exception e) {
+    //                 echo "⚠️ Failed to send notification: ${e.message}"
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 // ================== FUNCTIONS ==================
@@ -586,9 +530,12 @@ if __name__ == "__main__":
 
             writeFile file: 'generate_dockerfile.py', text: pythonScript
 
-            // Run Python script with explicit PYTHONPATH
+            // Run Python script with activated virtual environment
             def result = sh(
-                script: "export PYTHONPATH=\$HOME/.local/lib/python3.11/site-packages:\$PYTHONPATH && python3 generate_dockerfile.py '${image}'",
+                script: """
+                    source venv/bin/activate
+                    python3 generate_dockerfile.py '${image}'
+                """,
                 returnStatus: true
             )
 
@@ -681,7 +628,7 @@ def buildSingleImage(imageName, versionData, successful, failed) {
         def imageTag = "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/${imageName.replace('/', '-')}:${versionData.version}"
 
         // Validate image tag
-        if (!imageTag.matches('^[a-zA-Z0-9][a-zA-Z0-9_.-]*(?::[a-zA-Z0-9][a-zA-Z0-9_.-]*)?$')) {
+        if (!imageTag.matches('^[a-zA-Z0-9][a-zA-Z0-9_./-]*(?::[a-zA-Z0-9][a-zA-Z0-9_.-]*)?$')) {
             throw new Exception("Invalid image tag name: ${imageTag}")
         }
 
@@ -898,6 +845,9 @@ def pushImages(testedImages) {
 }
 
 def generateFinalReport() {
+    // Deserialize PIPELINE_REPORT from env
+    def pipelineReport = env.PIPELINE_REPORT ? readJSON(text: env.PIPELINE_REPORT) : [:]
+
     def report = """
 === FINAL PIPELINE REPORT ===
 
@@ -906,22 +856,44 @@ Build Mode: ${params.BUILD_MODE}
 Images to Build: ${params.IMAGES_TO_BUILD}
 Maximum Parallel Threads: ${params.MAX_PARALLEL_THREADS}
 
-${PIPELINE_REPORT.collect { stage, data ->
-    """
-${stage.toUpperCase()}
-   Status: ${data?.status ?: 'NOT RUN'}
-   Message: ${data?.message ?: 'Stage not executed'}
-   ${data?.startTime ? "Started: ${data.startTime}" : ''}
-   ${data?.endTime ? "Completed: ${data.endTime}" : ''}
-   ${data?.imagesCount ? "Image Count: ${data.imagesCount}" : ''}
-   ${data?.successful ? "Successful: ${data.successful.size()}\n   Images: ${data.successful.join(', ')}" : ''}
-   ${data?.failed ? "Failed: ${data.failed.size()}\n   Failed Images: ${data.failed.join(', ')}\n   Details: ${data.errorDetails ?: 'No details available'}" : ''}
-"""
-}.join('\n')}
+1. INITIAL VALIDATION
+   Status: ${pipelineReport.validation?.status ?: 'UNKNOWN'}
+   Message: ${pipelineReport.validation?.message ?: 'No data'}
+   Image Count: ${pipelineReport.validation?.imagesCount ?: 'N/A'}
+
+2. ENVIRONMENT SETUP
+   Status: ${pipelineReport.environment?.status ?: 'UNKNOWN'}
+   Message: ${pipelineReport.environment?.message ?: 'No data'}
+   Builder Image: ${pipelineReport.environment?.builderImage ?: 'N/A'}
+
+3. DOCKERFILE GENERATION
+   Successful: ${pipelineReport.generation?.successful?.size() ?: 0}
+   Failed: ${pipelineReport.generation?.failed?.size() ?: 0}
+   Failed Images: ${pipelineReport.generation?.failed?.join(', ') ?: 'None'}
+
+4. IMAGE BUILDING
+   Successful: ${pipelineReport.build?.successful?.size() ?: 0}
+   Failed: ${pipelineReport.build?.failed?.size() ?: 0}
+   Failed Images: ${pipelineReport.build?.failed?.join(', ') ?: 'None'}
+
+5. SMOKE TESTS
+   Successful: ${pipelineReport.smokeTests?.successful?.size() ?: 0}
+   Failed: ${pipelineReport.smokeTests?.failed?.size() ?: 0}
+   Failed Images: ${pipelineReport.smokeTests?.failed?.join(', ') ?: 'None'}
+
+6. PUSH TO REGISTRY
+   Successful: ${pipelineReport.push?.successful?.size() ?: 0}
+   Failed: ${pipelineReport.push?.failed?.size() ?: 0}
+   Failed Images: ${pipelineReport.push?.failed?.join(', ') ?: 'None'}
 
 === END OF REPORT ===
 """
 
     echo report
+
+    // Save report to file
     writeFile file: 'pipeline_report.txt', text: report
+
+    // Archive report
+    archiveArtifacts artifacts: 'pipeline_report.txt', allowEmptyArchive: true
 }
