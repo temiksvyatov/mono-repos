@@ -396,13 +396,12 @@ def getChangedFiles() {
 
 def getChangedImages(changedFiles) {
     def changedImages = []
-
     changedFiles.each { file ->
         if (file.startsWith('images/')) {
             def parts = file.split('/')
             if (parts.length >= 2) {
                 def imageName = parts[1]
-                if (parts.length >= 3) {
+                if (parts.length >= 3 && parts[2] !=~ /config\.yaml|Dockerfile\.j2/) {
                     imageName = "${parts[1]}/${parts[2]}"
                 }
                 if (!changedImages.contains(imageName)) {
@@ -411,7 +410,6 @@ def getChangedImages(changedFiles) {
             }
         }
     }
-
     return changedImages
 }
 
