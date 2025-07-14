@@ -42,6 +42,11 @@ pipeline {
             defaultValue: '10',
             description: 'Maximum parallel build threads'
         )
+        booleanParam(
+            name: 'GENERATE_AND_SEND_REPORT',
+            defaultValue: true,
+            description: 'Generate and send pipeline summary report'
+        )
     }
 
     stages {
@@ -278,39 +283,69 @@ pipeline {
         }
     }
 
-    // post {
-    //     always {
-    //         script {
-    //             echo "=== Generating Final Report ==="
-    //             generateFinalReport()
+    post {
+    always {
+        script {
+            if (params.GENERATE_AND_SEND_REPORT) {
+                echo "=== Generating Final Report ==="
+                generateFinalReport()
+                sh "rm -rf generated/ || true"
+            } else {
+                echo "⚠️ Report generation is disabled by parameter"
+            }
+            cleanWs()
+        }
+    }
 
-    //             // Clean up workspace and generated files
-    //             sh "rm -rf generated/ venv/ || true"
-    //             cleanWs()
-    //         }
-    //     }
-    //     success {
-    //         script {
-    //             try {
-    //                 def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
-    //                 def message = "✅ Pipeline completed!\n🐳 Built ${imagesToBuild.size()} images\nJob: ${env.JOB_URL}"
-    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-    //             } catch (Exception e) {
-    //                 echo "⚠️ Failed to send notification: ${e.message}"
-    //             }
-    //         }
-    //     }
-    //     failure {
-    //         script {
-    //             try {
-    //                 def message = "❌ Pipeline failed\nJob: ${env.JOB_URL}"
-    //                 externalUtils.notify(message, env.JOB_NAME, env.JOB_URL)
-    //             } catch (Exception e) {
-    //                 echo "⚠️ Failed to send notification: ${e.message}"
-    //             }
-    //         }
-    //     }
-    // }
+    success {
+        script {
+            if (params.GENERATE_AND_SEND_REPORT) {
+                try {
+                    def builtCount = PIPELINE_REPORT.build?.successful?.size() ?: 0
+                    def pushCount = PIPELINE_REPORT.push?.successful?.size() ?: 0
+                    def testFailures = PIPELINE_REPORT.smokeTests?.failed?.size() ?: 0
+
+                    def message = """✅ Pipeline Succeeded!
+✔ Built Images: ${builtCount}
+🔬 Smoke Test Failures: ${testFailures}
+📤 Successfully Pushed: ${pushCount}
+📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
+"""
+
+                    externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                } catch (Exception e) {
+                    echo "⚠️ Failed to send success notification: ${e.message}"
+                }
+            } else {
+                echo "ℹ️ Skipping success notification due to disabled reporting"
+            }
+        }
+    }
+
+    failure {
+        script {
+            if (params.GENERATE_AND_SEND_REPORT) {
+                try {
+                    def builtFail = PIPELINE_REPORT.build?.failed?.size() ?: 0
+                    def pushFail = PIPELINE_REPORT.push?.failed?.size() ?: 0
+
+                    def message = """❌ Pipeline Failed!
+✖ Failed Builds: ${builtFail}
+✖ Failed Pushes: ${pushFail}
+📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
+"""
+
+                    externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                } catch (Exception e) {
+                    echo "⚠️ Failed to send failure notification: ${e.message}"
+                }
+            } else {
+                echo "ℹ️ Skipping failure notification due to disabled reporting"
+            }
+        }
+    }
+}
+
 }
 
 // ================== FUNCTIONS ==================
