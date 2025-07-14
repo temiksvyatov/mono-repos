@@ -16,7 +16,7 @@ default:
     - name: jenkins
       uid: 11160
   copy:
-    - source: common/certs/*
+    - source: common/files/certs/*
       dest: /usr/local/share/ca-certificates/
     - source: common/files/timezones/Moscow
       dest: /usr/share/zoneinfo/Europe/Moscow

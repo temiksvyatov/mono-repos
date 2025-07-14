@@ -1,8 +1,8 @@
 name: docker-nginx-alpine
 copy:
-  - source: ./conf/nginx.conf
+  - source: common/files/nginx.conf
     dest: /etc/nginx/nginx.conf
-  - source: ./conf/default.conf
+  - source: common/files/default.conf
     dest: /etc/nginx/http.d/default.conf
 run:
   - apk add --no-cache nginx
