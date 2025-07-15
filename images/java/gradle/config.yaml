@@ -4,6 +4,3 @@ packages:
   - make
   - curl
   - jq
-run:
-  - apk upgrade libssl3 libcrypto3
-workdir: /data/gradle

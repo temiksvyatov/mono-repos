@@ -1,9 +1,7 @@
 name: docker-java-{{ version }}-jre-alpine
 packages:
   - binutils
-env:
-  JAVA_HOME: /opt/java/openjdk
-  PATH: ${JAVA_HOME}/bin:${PATH}
+  - git
 java_certs:
   - alias: megaACME1
     file: megafon-acme-01.crt

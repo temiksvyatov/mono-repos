@@ -1,8 +1,12 @@
 {% extends "common/templates/Dockerfile.common.j2" %}
-{% block specific %}
-ARG VERSION
+
+{% block alpine_repo_setup %}
+RUN ALPINE_VERSION_MINOR=$(cat /etc/alpine-release) && \
+    echo "https://artifactory.nexign.com:443/artifactory/alpine-alpine-remote/v${ALPINE_VERSION_MINOR%.*}/main" > /etc/apk/repositories &&\
+    echo "https://artifactory.nexign.com:443/artifactory/alpine-alpine-remote/v${ALPINE_VERSION_MINOR%.*}/community" >> /etc/apk/repositories &&\
+    apk update
+{% endblock %}
+
+{% block extra_env %}
 ENV PATH=/opt/gradle/bin:$PATH
-RUN apk add --no-cache bash make curl jq
-RUN apk upgrade libssl3 libcrypto3
-WORKDIR /data/gradle
 {% endblock %}

@@ -1,23 +1,43 @@
 {% extends "common/templates/Dockerfile.common.j2" %}
+
+{% block package_installation %}
+RUN rm -f /etc/yum.repos.d/* && \
+    curl http://repo.nexign.com/scripts/add-almalinux-repo.sh | sh && \
+    curl http://repo.nexign.com/scripts/add-ubi9-repo.sh | sh && \
+    curl http://repo.nexign.com/scripts/add-elrepo-repo.sh | sh && \
+    update-ca-trust force-enable && \
+    update-ca-trust extract && \
+    microdnf upgrade -y && \
+    microdnf install -y --nodocs {{ packages | join(' ') }} && \
+    microdnf clean all
+{% endblock %}
+
 {% block specific %}
+ARG PYTHON_REGISTRY
 ARG PYTHON_FULL_VERSION
 ARG PYTHON_MINOR_VERSION
-ENV APP_ROOT=/opt/app-root \
-    PATH=/opt/app-root/src/bin:/opt/app-root/bin:$HOME/.local/bin/:$PATH \
+
+ENV APP_ROOT=/opt/app-root
+ENV PATH=/opt/app-root/src/bin:/opt/app-root/bin:$HOME/.local/bin/:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
     PIP_NO_CACHE_DIR=off
+
 COPY conf/pip.conf /etc/pip.conf
-RUN rm -f /etc/yum.repos.d/*
-RUN curl http://repo.nexign.com/scripts/add-ubi9-repo.sh | sh &&\
-    curl http://repo.nexign.com/scripts/add-almalinux-repo.sh | sh &&\
-    curl http://repo.nexign.com/scripts/add-elrepo-repo.sh | sh &&\
-    update-ca-trust force-enable &&\
-    update-ca-trust extract
-RUN dnf remove nodejs -y &&\
-    dnf upgrade -y
-RUN pip install virtualenv &&\
-    python3 -m virtualenv ${APP_ROOT} &&\
+COPY certs/ /etc/pki/ca-trust/source/anchors/
+
+RUN --mount=type=secret,id=tok \
+    curl -H "X-JFrog-Art-Api: $(cat /run/secrets/tok)" ${PYTHON_REGISTRY}/${PYTHON_FULL_VERSION}/Python-${PYTHON_FULL_VERSION}.tgz -o Python-${PYTHON_FULL_VERSION}.tgz && \
+    tar xzf Python-${PYTHON_FULL_VERSION}.tgz && \
+    cd Python-${PYTHON_FULL_VERSION} && \
+    ./configure --enable-optimizations --enable-loadable-sqlite-extensions && \
+    make -j $(nproc) && \
+    make altinstall && \
+    rm -rf /Python-${PYTHON_FULL_VERSION}* && \
+    ln -s /usr/local/bin/python${PYTHON_MINOR_VERSION} /usr/local/bin/python3 && \
+    ln -s /usr/local/bin/pip${PYTHON_MINOR_VERSION} /usr/local/bin/pip && \
+    pip install virtualenv && \
+    pip install --upgrade setuptools && \
+    python3 -m virtualenv ${APP_ROOT} && \
     chown -R 11200:0 ${APP_ROOT}
-WORKDIR /data/app
 {% endblock %}

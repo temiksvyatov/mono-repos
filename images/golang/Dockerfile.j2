@@ -1,5 +1,13 @@
 {% extends "common/templates/Dockerfile.common.j2" %}
-{% block specific %}
+
+{% block alpine_repo_setup %}
+RUN ALPINE_VERSION_MINOR=$(cat /etc/alpine-release) && \
+    echo "https://artifactory.nexign.com:443/artifactory/alpine-alpine-remote/v${ALPINE_VERSION_MINOR%.*}/main" > /etc/apk/repositories &&\
+    echo "https://artifactory.nexign.com:443/artifactory/alpine-alpine-remote/v${ALPINE_VERSION_MINOR%.*}/community" >> /etc/apk/repositories &&\
+    apk update
+{% endblock %}
+
+{% block extra_env %}
 ENV PATH=/data/golang/go/bin:$PATH \
     ARCH=x86_64 \
     GOPROXY=https://artifactory.nexign.com/artifactory/api/go/go \
@@ -11,6 +19,8 @@ ENV PATH=/data/golang/go/bin:$PATH \
     GOSUMDB=off \
     GONOSUMDB="github.com/*" \
     GO111MODULE=on
-RUN apk add --no-cache git make build-base
+{% endblock %}
+
+{% block specific %}
 WORKDIR /data/build
 {% endblock %}

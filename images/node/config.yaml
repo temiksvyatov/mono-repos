@@ -6,4 +6,4 @@ packages:
   - curl
   - wget
   - tar
-workdir: /data/build
+  - rsync

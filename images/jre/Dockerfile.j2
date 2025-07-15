@@ -1,9 +1,19 @@
 {% extends "common/templates/Dockerfile.common.j2" %}
-{% block specific %}
-ENV JAVA_HOME=/opt/java/openjdk
-ENV PATH="${JAVA_HOME}/bin:${PATH}"
-RUN apk add --no-cache binutils
+
+{% block alpine_repo_setup %}
+RUN ALPINE_VERSION_MINOR=$(cat /etc/alpine-release) && \
+    echo "https://artifactory.nexign.com:443/artifactory/alpine-alpine-remote/v${ALPINE_VERSION_MINOR%.*}/main" > /etc/apk/repositories &&\
+    echo "https://artifactory.nexign.com:443/artifactory/alpine-alpine-remote/v${ALPINE_VERSION_MINOR%.*}/community" >> /etc/apk/repositories &&\
+    apk update
+{% endblock %}
+
+{% block post_install %}
 {% for cert in java_certs %}
 RUN keytool -import -alias {{ cert.alias }} -keystore /opt/java/openjdk/lib/security/cacerts -file /usr/local/share/ca-certificates/{{ cert.file }} -noprompt -storepass changeit
 {% endfor %}
+{% endblock %}
+
+{% block extra_env %}
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
 {% endblock %}

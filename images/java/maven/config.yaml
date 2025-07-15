@@ -1,7 +1,3 @@
 name: docker-java-{{ version }}-maven-alpine
 packages:
-  - bash
   - make
-run:
-  - apk upgrade libssl3 libcrypto3
-workdir: /data/maven
