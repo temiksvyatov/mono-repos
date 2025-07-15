@@ -3,7 +3,7 @@ alpine:
     base_image: docker.nexign.com/alpine:latest
 golang:
   - version: latest
-    base_image: docker.nexign.com/golang:1-alpine:latest
+    base_image: docker.nexign.com/golang:1-alpine
 node:
   - version: 16
     base_image: docker.nexign.com/node16-alpine:latest
@@ -14,18 +14,18 @@ node:
 java:
   maven:
     - version: 11
-      base_image: docker.nexign.com/maven:3-eclipse-temurin-11-alpine:latest
+      base_image: docker.nexign.com/maven:3-eclipse-temurin-11-alpine
     - version: 17
-      base_image: docker.nexign.com/maven:3-eclipse-temurin-17-alpine:latest
+      base_image: docker.nexign.com/maven:3-eclipse-temurin-17-alpine
     - version: 21
-      base_image: docker.nexign.com/maven:3-eclipse-temurin-21-alpine:latest
+      base_image: docker.nexign.com/maven:3-eclipse-temurin-21-alpine
   gradle:
     - version: 11
-      base_image: docker.nexign.com/gradle:8.11.1-jdk11-alpine:latest
+      base_image: docker.nexign.com/gradle:8.11.1-jdk11-alpine
     - version: 17
-      base_image: docker.nexign.com/gradle:8.11.1-jdk17-alpine:latest
+      base_image: docker.nexign.com/gradle:8.11.1-jdk17-alpine
     - version: 21
-      base_image: docker.nexign.com/gradle:8.11.1-jdk21-alpine:latest
+      base_image: docker.nexign.com/gradle:8.11.1-jdk21-alpine
 python:
   - version: 310
     base_image: docker.nexign.com/ubi9/python-310:latest
