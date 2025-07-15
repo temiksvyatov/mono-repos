@@ -399,13 +399,13 @@ def getChangedImages(changedFiles) {
         if (file.startsWith('images/')) {
             def parts = file.split('/')
             if (parts.length >= 2) {
-                def imageName = parts[1]
-                if (parts.length >= 3 && parts[2] !=~ /config\.yaml|Dockerfile\.j2/) {
-                    imageName = "${parts[1]}/${parts[2]}"
+                if (parts.length == 3 && (parts[2] == 'Dockerfile.j2' || parts[2] == 'config.yaml')) {
+                    changedImages.add(parts[1])
                 }
-                if (!changedImages.contains(imageName)) {
-                    changedImages.add(imageName)
+                else if (parts.length == 4 && (parts[3] == 'Dockerfile.j2' || parts[3] == 'config.yaml')) {
+                    changedImages.add("${parts[1]}/${parts[2]}")
                 }
+                changedImages = changedImages.unique()
             }
         }
     }
@@ -414,7 +414,7 @@ def getChangedImages(changedFiles) {
 
 def validateImageDirectories(imagesToBuild) {
     imagesToBuild.each { image ->
-        def imageDir = "images/${image}"
+        def imageDir = "images/${image.replace('/', File.separator)}"
         if (!fileExists(imageDir)) {
             error("Image directory missing: ${imageDir}")
         }
@@ -430,7 +430,6 @@ def validateImageDirectories(imagesToBuild) {
         echo "✓ Validated image directory: ${imageDir}"
     }
 }
-
 def validateFileIntegrity(versionsYaml, imagesToBuild) {
     // Validate versions.yaml structure
     imagesToBuild.each { image ->
