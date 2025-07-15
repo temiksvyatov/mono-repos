@@ -21,8 +21,8 @@ default:
     - source: common/files/timezones/Moscow
       dest: /usr/share/zoneinfo/Europe/Moscow
   run:
-    # - apk update
-    # - apk upgrade --available
+    - apk update
+    - apk upgrade --available
     - update-ca-certificates
     - mkdir -p /data/cache && chmod 777 /data/cache
     - ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
