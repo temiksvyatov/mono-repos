@@ -668,7 +668,7 @@ def buildSingleImage(imageName, versionData, successful, failed) {
 
         echo "Building image: ${imageTag}"
         def buildResult = sh(
-            script: "docker build -t ${imageTag} -f ${dockerfilePath} .",
+            script: "docker build --no-cache --pull --progress=plain -t ${imageTag} -f ${dockerfilePath} .",
             returnStatus: true
         )
 
@@ -679,7 +679,7 @@ def buildSingleImage(imageName, versionData, successful, failed) {
             failed.add(imageTag)
             echo "✗ Error building image: ${imageTag}"
             // Вывод логов сборки для диагностики
-            sh "docker build -t ${imageTag} -f ${dockerfilePath} . || true"
+            sh "docker build --no-cache --pull --progress=plain -t ${imageTag} -f ${dockerfilePath} . || true"
         }
     } catch (Exception e) {
         failed.add("${imageName}:${versionData.version}")
