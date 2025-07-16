@@ -1,17 +1,23 @@
 {% extends "common/templates/Dockerfile.common.j2" %}
 
 {% block package_installation %}
-RUN microndf install -y --nodocs ca-certificates && \
+RUN {{ package_manager }} install -y --nodocs ca-certificates && \
     rm -f /etc/yum.repos.d/* && \
     curl http://repo.nexign.com/scripts/add-almalinux-repo.sh | sh && \
     curl http://repo.nexign.com/scripts/add-ubi9-repo.sh | sh && \
     curl http://repo.nexign.com/scripts/add-elrepo-repo.sh | sh && \
     update-ca-trust force-enable && \
     update-ca-trust extract && \
-    microndf upgrade -y && \
-    microndf install -y --nodocs {{ packages | join(' ') }} && \
-    microndf clean all
+    {{ package_manager }} upgrade -y && \
+    {{ package_manager }} install -y --nodocs {{ packages | join(' ') }} \
+    make gcc automake tar git gcc-c++ libcurl-devel libpq-devel libxml2-devel \
+    libxslt-devel openssl-devel bzip2-devel libffi-devel zlib-devel findutils \
+    patch httpd-devel mod_ssl mod_auth_gssapi mod_ldap mod_session atlas-devel \
+    gcc-gfortran libtool-ltdl ncurses-devel sqlite-devel kernel-ml kernel-ml-core \
+    kernel-ml-modules kernel-ml-modules-extra && \
+    {{ package_manager }} clean all
 {% endblock %}
+
 
 {% block specific %}
 ARG PYTHON_REGISTRY
