@@ -259,62 +259,62 @@ pipeline {
         }
     }
 
-//     post {
-//         always {
-//             script {
-//                 if (params.GENERATE_AND_SEND_REPORT) {
-//                     echo "=== Generating Final Report ==="
-//                     reportGenerator.generateFinalReport(PIPELINE_REPORT)
-//                     sh "rm -rf generated/ || true"
-//                 } else {
-//                     echo "⚠️ Report generation is disabled by parameter"
-//                 }
-//                 cleanWs()
-//             }
-//         }
-//         success {
-//             script {
-//                 if (params.GENERATE_AND_SEND_REPORT) {
-//                     try {
-//                         def builtCount = PIPELINE_REPORT.build?.successful?.size() ?: 0
-//                         def pushCount = PIPELINE_REPORT.push?.successful?.size() ?: 0
-//                         def testFailures = PIPELINE_REPORT.smokeTests?.failed?.size() ?: 0
+    post {
+        always {
+            script {
+                if (params.GENERATE_AND_SEND_REPORT) {
+                    echo "=== Generating Final Report ==="
+                    reportGenerator.generateFinalReport(PIPELINE_REPORT)
+                    sh "rm -rf generated/ || true"
+                } else {
+                    echo "⚠️ Report generation is disabled by parameter"
+                }
+                cleanWs()
+            }
+        }
+        success {
+            script {
+                if (params.GENERATE_AND_SEND_REPORT) {
+                    try {
+                        def builtCount = PIPELINE_REPORT.build?.successful?.size() ?: 0
+                        def pushCount = PIPELINE_REPORT.push?.successful?.size() ?: 0
+                        def testFailures = PIPELINE_REPORT.smokeTests?.failed?.size() ?: 0
 
-//                         def message = """✅ Pipeline Succeeded!
-// ✔ Built Images: ${builtCount}
-// 🔬 Smoke Test Failures: ${testFailures}
-// 📤 Successfully Pushed: ${pushCount}
-// 📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
-// """
-//                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
-//                     } catch (Exception e) {
-//                         echo "⚠️ Failed to send success notification: ${e.message}"
-//                     }
-//                 } else {
-//                     echo "ℹ️ Skipping success notification due to disabled reporting"
-//                 }
-//             }
-//         }
-//         failure {
-//             script {
-//                 if (params.GENERATE_AND_SEND_REPORT) {
-//                     try {
-//                         def builtFail = PIPELINE_REPORT.build?.failed?.size() ?: 0
-//                         def pushFail = PIPELINE_REPORT.push?.failed?.size() ?: 0
+                        def message = """✅ Pipeline Succeeded!
+✔ Built Images: ${builtCount}
+🔬 Smoke Test Failures: ${testFailures}
+📤 Successfully Pushed: ${pushCount}
+📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
+"""
+                        externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                    } catch (Exception e) {
+                        echo "⚠️ Failed to send success notification: ${e.message}"
+                    }
+                } else {
+                    echo "ℹ️ Skipping success notification due to disabled reporting"
+                }
+            }
+        }
+        failure {
+            script {
+                if (params.GENERATE_AND_SEND_REPORT) {
+                    try {
+                        def builtFail = PIPELINE_REPORT.build?.failed?.size() ?: 0
+                        def pushFail = PIPELINE_REPORT.push?.failed?.size() ?: 0
 
-//                         def message = """❌ Pipeline Failed!
-// ✖ Failed Builds: ${builtFail}
-// ✖ Failed Pushes: ${pushFail}
-// 📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
-// """
-//                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
-//                     } catch (Exception e) {
-//                         echo "⚠️ Failed to send failure notification: ${e.message}"
-//                     }
-//                 } else {
-//                     echo "ℹ️ Skipping failure notification due to disabled reporting"
-//                 }
-//             }
-//         }
-//     }
+                        def message = """❌ Pipeline Failed!
+✖ Failed Builds: ${builtFail}
+✖ Failed Pushes: ${pushFail}
+📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
+"""
+                        externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                    } catch (Exception e) {
+                        echo "⚠️ Failed to send failure notification: ${e.message}"
+                    }
+                } else {
+                    echo "ℹ️ Skipping failure notification due to disabled reporting"
+                }
+            }
+        }
+    }
 }
