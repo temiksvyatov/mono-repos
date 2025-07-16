@@ -8,7 +8,7 @@ RUN ALPINE_VERSION_MINOR=$(cat /etc/alpine-release) && \
 {% endblock %}
 
 {% block post_install %}
-RUN {% for cert in java_certs %} \
+RUN \ {% for cert in java_certs %}
     keytool -import -alias {{ cert.alias }} -keystore /opt/java/openjdk/lib/security/cacerts -file /usr/local/share/ca-certificates/{{ cert.file }} -noprompt -storepass changeit {% if not loop.last %}; \ {% endif %} {% endfor %}
 {% endblock %}
 
