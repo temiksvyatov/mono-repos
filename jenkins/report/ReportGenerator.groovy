@@ -17,8 +17,7 @@ def generateFinalReport(pipelineReport) {
 </head>
 <body>
     <h1>Pipeline Report</h1>
-    <p><strong>Дата выполнения:</strong> ${LocalDateTime.now().format(DateTimeFormatter.ofPattern('yyyy-MM-dd HH:mm:ss'))}</p>
-    /* groovylint-disable-next-line LineLength */
+    <p><strong>Дата выполнения:</strong> ${new Date()}</p>
     <p><strong>Режим сборки:</strong> ${params.BUILD_MODE}</p>
     <p><strong>Образы для сборки:</strong> ${params.IMAGES_TO_BUILD}</p>
 
