@@ -17,13 +17,14 @@ def generateFinalReport(pipelineReport) {
 </head>
 <body>
     <h1>Pipeline Report</h1>
-    <p><strong>Дата выполнения:</strong> ${new Date()}</p>
+    <p><strong>Дата выполнения:</strong> ${LocalDateTime.now().format(DateTimeFormatter.ofPattern('yyyy-MM-dd HH:mm:ss'))}</p>
+    /* groovylint-disable-next-line LineLength */
     <p><strong>Режим сборки:</strong> ${params.BUILD_MODE}</p>
     <p><strong>Образы для сборки:</strong> ${params.IMAGES_TO_BUILD}</p>
 
     <h2>1. Начальная валидация</h2>
     <p><strong>Статус:</strong> ${pipelineReport.validation?.status ?: 'НЕИЗВЕСТНО'}</p>
-    <p><strong>Сообщение:</strong> ${pipelineReport.validation?.message ?: 'Reload
+    <p><strong>Сообщение:</strong> ${pipelineReport.validation?.message ?: 'Reload'}</p>
 
     <h2>2. Настройка окружения</h2>
     <p><strong>Статус:</strong> ${pipelineReport.environment?.status ?: 'НЕИЗВЕСТНО'}</p>
