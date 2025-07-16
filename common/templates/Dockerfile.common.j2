@@ -10,11 +10,6 @@ COPY {{ copy_item.source }} {{ copy_item.dest }}
 {# Prepare alpine repos #}
 {% block alpine_repo_setup %}{% endblock %}
 
-{# General commands #}
-{% for run_cmd in run %}
-RUN {{ run_cmd }}
-{% endfor %}
-
 {# Setup packages #}
 {% block package_installation %}
     {% if package_manager == 'apk' %}
@@ -24,7 +19,12 @@ RUN {{ run_cmd }}
     {% endif %}
 {% endblock %}
 
-{# Additioinal setup steps #}
+{# General commands #}
+{% for run_cmd in run %}
+RUN {{ run_cmd }}
+{% endfor %}
+
+{# Additional setup steps #}
 {% block post_install %}{% endblock %}
 
 {# User creation #}
