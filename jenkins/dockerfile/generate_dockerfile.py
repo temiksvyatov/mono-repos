@@ -20,7 +20,7 @@ def generate_dockerfile(image_name, image_data, common_config, env):
     final_config.update(image_data)
     final_config['name'] = image_name
 
-    if image_name == 'python/3.11':
+    if final_config['version'] == '311':
         final_config['package_manager'] = 'dnf'
 
     # Check for image-specific Dockerfile.j2

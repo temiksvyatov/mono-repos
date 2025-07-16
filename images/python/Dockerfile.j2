@@ -18,7 +18,6 @@ RUN {{ package_manager }} install -y --nodocs ca-certificates && \
     {{ package_manager }} clean all
 {% endblock %}
 
-
 {% block specific %}
 ARG PYTHON_REGISTRY
 ARG PYTHON_FULL_VERSION
