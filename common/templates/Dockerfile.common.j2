@@ -14,8 +14,8 @@ COPY {{ copy_item.source }} {{ copy_item.dest }}
 {% block package_installation %}
     {% if package_manager == 'apk' %}
         RUN apk add --no-cache {{ packages | join(' ') }}
-    {% elif package_manager == 'dnf' %}
-        RUN dnf install -y --nodocs {{ packages | join(' ') }}
+    {% elif package_manager == 'microndf' %}
+        RUN microndf install -y --nodocs {{ packages | join(' ') }}
     {% endif %}
 {% endblock %}
 

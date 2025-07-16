@@ -1,16 +1,16 @@
 {% extends "common/templates/Dockerfile.common.j2" %}
 
 {% block package_installation %}
-RUN dnf install -y --nodocs ca-certificates && \
+RUN microndf install -y --nodocs ca-certificates && \
     rm -f /etc/yum.repos.d/* && \
     curl http://repo.nexign.com/scripts/add-almalinux-repo.sh | sh && \
     curl http://repo.nexign.com/scripts/add-ubi9-repo.sh | sh && \
     curl http://repo.nexign.com/scripts/add-elrepo-repo.sh | sh && \
     update-ca-trust force-enable && \
     update-ca-trust extract && \
-    dnf upgrade -y && \
-    dnf install -y --nodocs {{ packages | join(' ') }} && \
-    dnf clean all
+    microndf upgrade -y && \
+    microndf install -y --nodocs {{ packages | join(' ') }} && \
+    microndf clean all
 {% endblock %}
 
 {% block specific %}
