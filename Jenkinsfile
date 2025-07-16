@@ -263,56 +263,83 @@ pipeline {
         always {
             script {
                 if (params.GENERATE_AND_SEND_REPORT) {
-                    echo "=== Generating Final Report ==="
                     reportGenerator.generateFinalReport(PIPELINE_REPORT)
                     sh "rm -rf generated/ || true"
-                } else {
-                    echo "⚠️ Report generation is disabled by parameter"
                 }
-                cleanWs()
+                deleteDir()
             }
         }
         success {
             script {
                 if (params.GENERATE_AND_SEND_REPORT) {
-                    try {
-                        def builtCount = PIPELINE_REPORT.build?.successful?.size() ?: 0
-                        def pushCount = PIPELINE_REPORT.push?.successful?.size() ?: 0
-                        def testFailures = PIPELINE_REPORT.smokeTests?.failed?.size() ?: 0
+                    def successfulImages = PIPELINE_REPORT.push?.successful ?: []
+                    def failedImages = []
+                    def failureDetails = [:]
 
-                        def message = """✅ Pipeline Succeeded!
-✔ Built Images: ${builtCount}
-🔬 Smoke Test Failures: ${testFailures}
-📤 Successfully Pushed: ${pushCount}
-📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
-"""
-                        externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
-                    } catch (Exception e) {
-                        echo "⚠️ Failed to send success notification: ${e.message}"
+                    // Собираем проваленные образы с этапами
+                    PIPELINE_REPORT.build?.failed?.each { image ->
+                        failedImages.add(image)
+                        failureDetails[image] = "Build Images"
                     }
-                } else {
-                    echo "ℹ️ Skipping success notification due to disabled reporting"
+                    PIPELINE_REPORT.smokeTests?.failed?.each { image ->
+                        if (!failedImages.contains(image)) {
+                            failedImages.add(image)
+                            failureDetails[image] = "Smoke Tests"
+                        }
+                    }
+                    PIPELINE_REPORT.push?.failed?.each { image ->
+                        if (!failedImages.contains(image)) {
+                            failedImages.add(image)
+                            failureDetails[image] = "Push Images to Registry"
+                        }
+                    }
+
+                    def message = """✅ Pipeline Succeeded!
+
+    ✔ Успешно построенные и отправленные образы:
+    ${successfulImages.collect { "  - ${it}" }.join('\n')}
+
+    ❌ Проваленные образы:
+    ${failedImages.collect { "  - ${it} (Провал на этапе: ${failureDetails[it]})" }.join('\n') ?: 'Отсутствуют'}
+
+    📄 Полный отчет: ${env.BUILD_URL}artifact/pipeline_report.html
+    """
+                    externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                 }
             }
         }
         failure {
             script {
                 if (params.GENERATE_AND_SEND_REPORT) {
-                    try {
-                        def builtFail = PIPELINE_REPORT.build?.failed?.size() ?: 0
-                        def pushFail = PIPELINE_REPORT.push?.failed?.size() ?: 0
+                    def failedImages = []
+                    def failureDetails = [:]
 
-                        def message = """❌ Pipeline Failed!
-✖ Failed Builds: ${builtFail}
-✖ Failed Pushes: ${pushFail}
-📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
-"""
-                        externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
-                    } catch (Exception e) {
-                        echo "⚠️ Failed to send failure notification: ${e.message}"
+                    // Собираем проваленные образы с этапами
+                    PIPELINE_REPORT.build?.failed?.each { image ->
+                        failedImages.add(image)
+                        failureDetails[image] = "Build Images"
                     }
-                } else {
-                    echo "ℹ️ Skipping failure notification due to disabled reporting"
+                    PIPELINE_REPORT.smokeTests?.failed?.each { image ->
+                        if (!failedImages.contains(image)) {
+                            failedImages.add(image)
+                            failureDetails[image] = "Smoke Tests"
+                        }
+                    }
+                    PIPELINE_REPORT.push?.failed?.each { image ->
+                        if (!failedImages.contains(image)) {
+                            failedImages.add(image)
+                            failureDetails[image] = "Push Images to Registry"
+                        }
+                    }
+
+                    def message = """❌ Pipeline Failed!
+
+    ✖ Проваленные образы:
+    ${failedImages.collect { "  - ${it} (Провал на этапе: ${failureDetails[it]})" }.join('\n') ?: 'Не удалось собрать данные'}
+
+    📄 Полный отчет: ${env.BUILD_URL}artifact/pipeline_report.html
+    """
+                    externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                 }
             }
         }
