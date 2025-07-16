@@ -23,9 +23,6 @@ ENV PATH=/opt/app-root/src/bin:/opt/app-root/bin:$HOME/.local/bin/:$PATH \
     PYTHONIOENCODING=UTF-8 \
     PIP_NO_CACHE_DIR=off
 
-COPY conf/pip.conf /etc/pip.conf
-COPY certs/ /etc/pki/ca-trust/source/anchors/
-
 RUN --mount=type=secret,id=tok \
     curl -H "X-JFrog-Art-Api: $(cat /run/secrets/tok)" ${PYTHON_REGISTRY}/${PYTHON_FULL_VERSION}/Python-${PYTHON_FULL_VERSION}.tgz -o Python-${PYTHON_FULL_VERSION}.tgz && \
     tar xzf Python-${PYTHON_FULL_VERSION}.tgz && \

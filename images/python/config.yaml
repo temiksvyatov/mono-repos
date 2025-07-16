@@ -1,5 +1,10 @@
 name: docker-python-{{ version }}-ubi
 package_manager: microdnf
+copy:
+  - source: common/files/pip.conf
+    dest: /etc/pip.conf
+  - source: common/files/certs/*
+    dest: /etc/pki/ca-trust/source/anchors/
 packages:
   - make
   - gcc
