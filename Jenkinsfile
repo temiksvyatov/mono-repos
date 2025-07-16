@@ -29,7 +29,7 @@ pipeline {
         string(
             name: 'IMAGES_TO_BUILD',
             defaultValue: 'all',
-            description: 'List of images to build (all or comma-separated list, e.g., alpine,node/16)'
+            description: 'List of images to build (all or comma-separated list, e.g., alpine,java/maven)'
         )
         string(
             name: 'REGISTRY_URL',
@@ -181,7 +181,7 @@ pipeline {
                             PIPELINE_REPORT.generation = generationResult
                             env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
                             if (generationResult.failed.size() > 0) {
-                                echo "WARNING: Failed to generate Dockerfiles for: ${generationResult.failed}"
+                                unstable("WARNING: Failed to generate Dockerfiles for: ${generationResult.failed}")
                             }
                             echo "✓ Successfully generated Dockerfiles: ${generationResult.successful.size()}"
                         }
@@ -210,7 +210,7 @@ pipeline {
                         error("No images were built successfully. Aborting pipeline.")
                     }
                     if (buildResult.failed.size() > 0) {
-                        echo "WARNING: Failed to build images: ${buildResult.failed}"
+                        unstable("WARNING: Failed to build images: ${buildResult.failed}")
                     }
                     echo "✓ Successfully built images: ${buildResult.successful.size()}"
                     echo "=== Image Building Completed ==="
@@ -230,7 +230,7 @@ pipeline {
                     PIPELINE_REPORT.smokeTests = testResult
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
                     if (testResult.failed.size() > 0) {
-                        echo "WARNING: Smoke tests failed for: ${testResult.failed}"
+                        unstable("WARNING: Smoke tests failed for: ${testResult.failed}")
                     }
                     echo "✓ Successfully passed smoke tests: ${testResult.successful.size()}"
                     echo "=== Smoke Tests Completed ==="
@@ -250,7 +250,7 @@ pipeline {
                     PIPELINE_REPORT.push = pushResult
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
                     if (pushResult.failed.size() > 0) {
-                        echo "WARNING: Failed to push images: ${pushResult.failed}"
+                        unstable("WARNING: Failed to push images: ${pushResult.failed}")
                     }
                     echo "✓ Successfully pushed images: ${pushResult.successful.size()}"
                     echo "=== Image Pushing Completed ==="
@@ -263,8 +263,11 @@ pipeline {
         always {
             script {
                 if (params.GENERATE_AND_SEND_REPORT) {
+                    echo "=== Generating Final Report ==="
                     reportGenerator.generateFinalReport(PIPELINE_REPORT)
                     sh "rm -rf generated/ || true"
+                } else {
+                    echo "⚠️ Report generation is disabled by parameter"
                 }
                 deleteDir()
             }
@@ -272,74 +275,96 @@ pipeline {
         success {
             script {
                 if (params.GENERATE_AND_SEND_REPORT) {
-                    def successfulImages = PIPELINE_REPORT.push?.successful ?: []
-                    def failedImages = []
-                    def failureDetails = [:]
+                    try {
+                        def successfulImages = PIPELINE_REPORT.push?.successful ?: []
+                        def failedImages = []
+                        def failureDetails = [:]
 
-                    // Собираем проваленные образы с этапами
-                    PIPELINE_REPORT.build?.failed?.each { image ->
-                        failedImages.add(image)
-                        failureDetails[image] = "Build Images"
-                    }
-                    PIPELINE_REPORT.smokeTests?.failed?.each { image ->
-                        if (!failedImages.contains(image)) {
+                        // Collect failed images with their failure stages
+                        PIPELINE_REPORT.generation?.failed?.each { image ->
                             failedImages.add(image)
-                            failureDetails[image] = "Smoke Tests"
+                            failureDetails[image] = "Generate Dockerfiles"
                         }
-                    }
-                    PIPELINE_REPORT.push?.failed?.each { image ->
-                        if (!failedImages.contains(image)) {
-                            failedImages.add(image)
-                            failureDetails[image] = "Push Images to Registry"
+                        PIPELINE_REPORT.build?.failed?.each { image ->
+                            if (!failedImages.contains(image)) {
+                                failedImages.add(image)
+                                failureDetails[image] = "Build Images"
+                            }
                         }
+                        PIPELINE_REPORT.smokeTests?.failed?.each { image ->
+                            if (!failedImages.contains(image)) {
+                                failedImages.add(image)
+                                failureDetails[image] = "Smoke Tests"
+                            }
+                        }
+                        PIPELINE_REPORT.push?.failed?.each { image ->
+                            if (!failedImages.contains(image)) {
+                                failedImages.add(image)
+                                failureDetails[image] = "Push Images to Registry"
+                            }
+                        }
+
+                        def message = """✅ Pipeline Succeeded!
+✔ Successfully built and pushed images:
+${successfulImages.collect { "  - ${it}" }.join('\n') ?: 'None'}
+
+❌ Failed images:
+${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('\n') ?: 'None'}
+
+📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.html
+"""
+                        externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                    } catch (Exception e) {
+                        echo "⚠️ Failed to send success notification: ${e.message}"
                     }
-
-                    def message = """✅ Pipeline Succeeded!
-
-    ✔ Успешно построенные и отправленные образы:
-    ${successfulImages.collect { "  - ${it}" }.join('\n')}
-
-    ❌ Проваленные образы:
-    ${failedImages.collect { "  - ${it} (Провал на этапе: ${failureDetails[it]})" }.join('\n') ?: 'Отсутствуют'}
-
-    📄 Полный отчет: ${env.BUILD_URL}artifact/pipeline_report.html
-    """
-                    externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                } else {
+                    echo "ℹ️ Skipping success notification due to disabled reporting"
                 }
             }
         }
         failure {
             script {
                 if (params.GENERATE_AND_SEND_REPORT) {
-                    def failedImages = []
-                    def failureDetails = [:]
+                    try {
+                        def failedImages = []
+                        def failureDetails = [:]
 
-                    // Собираем проваленные образы с этапами
-                    PIPELINE_REPORT.build?.failed?.each { image ->
-                        failedImages.add(image)
-                        failureDetails[image] = "Build Images"
-                    }
-                    PIPELINE_REPORT.smokeTests?.failed?.each { image ->
-                        if (!failedImages.contains(image)) {
+                        // Collect failed images with their failure stages
+                        PIPELINE_REPORT.generation?.failed?.each { image ->
                             failedImages.add(image)
-                            failureDetails[image] = "Smoke Tests"
+                            failureDetails[image] = "Generate Dockerfiles"
                         }
-                    }
-                    PIPELINE_REPORT.push?.failed?.each { image ->
-                        if (!failedImages.contains(image)) {
-                            failedImages.add(image)
-                            failureDetails[image] = "Push Images to Registry"
+                        PIPELINE_REPORT.build?.failed?.each { image ->
+                            if (!failedImages.contains(image)) {
+                                failedImages.add(image)
+                                failureDetails[image] = "Build Images"
+                            }
                         }
+                        PIPELINE_REPORT.smokeTests?.failed?.each { image ->
+                            if (!failedImages.contains(image)) {
+                                failedImages.add(image)
+                                failureDetails[image] = "Smoke Tests"
+                            }
+                        }
+                        PIPELINE_REPORT.push?.failed?.each { image ->
+                            if (!failedImages.contains(image)) {
+                                failedImages.add(image)
+                                failureDetails[image] = "Push Images to Registry"
+                            }
+                        }
+
+                        def message = """❌ Pipeline Failed!
+✖ Failed images:
+${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('\n') ?: 'No failure details available'}
+
+📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.html
+"""
+                        externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                    } catch (Exception e) {
+                        echo "⚠️ Failed to send failure notification: ${e.message}"
                     }
-
-                    def message = """❌ Pipeline Failed!
-
-    ✖ Проваленные образы:
-    ${failedImages.collect { "  - ${it} (Провал на этапе: ${failureDetails[it]})" }.join('\n') ?: 'Не удалось собрать данные'}
-
-    📄 Полный отчет: ${env.BUILD_URL}artifact/pipeline_report.html
-    """
-                    externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                } else {
+                    echo "ℹ️ Skipping failure notification due to disabled reporting"
                 }
             }
         }

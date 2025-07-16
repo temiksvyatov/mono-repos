@@ -6,10 +6,9 @@ def buildImages(versionsData, imagesToBuild, params) {
 
     imagesToBuild.each { image ->
         def imageParts = image.split('/')
-        def imageData = versionsData[imageParts[0]]
-
-        if (imageParts.length > 1) {
-            imageData = imageData[imageParts[1]]
+        def imageData = versionsData
+        for (part in imageParts) {
+            imageData = imageData[part]
         }
 
         if (imageData instanceof List) {
