@@ -62,7 +62,7 @@ pipeline {
         stage('Load Scripts') {
             steps {
                 script {
-                    echo "=== Loading Scripts in Parallel ==="
+                    echo '=== Loading Scripts in Parallel ==='
                     def scriptLoads = [
                         'utils': { utils = load 'jenkins/utils/Utils.groovy' },
                         'validation': { validation = load 'jenkins/validation/Validation.groovy' },
@@ -74,7 +74,7 @@ pipeline {
                     ]
                     parallel scriptLoads
                     env.SCRIPTS_LOADED = 'true'
-                    echo "=== Scripts Loaded Successfully ==="
+                    echo '=== Scripts Loaded Successfully ==='
                 }
             }
         }
@@ -85,7 +85,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Starting Initial Validation ==="
+                    echo '=== Starting Initial Validation ==='
                     def requiredFiles = [
                         'versions.yaml',
                         'common/templates/Dockerfile.common.j2',
@@ -98,13 +98,13 @@ pipeline {
                         }
                         echo "✓ File found: ${file}"
                     }
-                    sh "chmod +x tools/yq"
+                    sh 'chmod +x tools/yq'
                     def versionsYaml
                     try {
                         versionsYaml = readYaml file: 'versions.yaml'
                     } catch (Exception e) {
-                        echo "WARNING: readYaml not available, falling back to yq for versions.yaml"
-                        versionsYaml = sh(script: "./tools/yq eval -o=json versions.yaml", returnStdout: true).trim()
+                        echo 'WARNING: readYaml not available, falling back to yq for versions.yaml'
+                        versionsYaml = sh(script: './tools/yq eval -o=json versions.yaml', returnStdout: true).trim()
                         versionsYaml = readJSON text: versionsYaml
                     }
                     env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
@@ -121,7 +121,7 @@ pipeline {
                         imagesCount: imagesToBuild.size()
                     ]
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-                    echo "=== Initial Validation Completed Successfully ==="
+                    echo '=== Initial Validation Completed Successfully ==='
                 }
             }
         }
@@ -132,7 +132,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Setting Up Environment ==="
+                    echo '=== Setting Up Environment ==='
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         try {
                             retry(3) {
@@ -150,7 +150,7 @@ pipeline {
                         builderImage: params.BUILDER_IMAGE
                     ]
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-                    echo "=== Environment Setup Completed ==="
+                    echo '=== Environment Setup Completed ==='
                 }
             }
         }
@@ -161,7 +161,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Generating Dockerfiles ==="
+                    echo '=== Generating Dockerfiles ==='
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
                         builderImage.inside() {
@@ -176,7 +176,7 @@ pipeline {
                             def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
                             def generationResult = dockerfileGenerator.generateDockerfiles(imagesToBuild)
                             if (generationResult.successful.size() == 0) {
-                                error("No Dockerfiles were generated successfully. Aborting pipeline.")
+                                error('No Dockerfiles were generated successfully. Aborting pipeline.')
                             }
                             PIPELINE_REPORT.generation = generationResult
                             env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
@@ -186,7 +186,7 @@ pipeline {
                             echo "✓ Successfully generated Dockerfiles: ${generationResult.successful.size()}"
                         }
                     }
-                    echo "=== Dockerfile Generation Completed ==="
+                    echo '=== Dockerfile Generation Completed ==='
                 }
             }
         }
@@ -197,7 +197,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Building Images ==="
+                    echo '=== Building Images ==='
                     def versionsData = readJSON text: env.VERSIONS_DATA
                     def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
                     def generationResult = PIPELINE_REPORT.generation
@@ -207,13 +207,13 @@ pipeline {
                     def buildResult = imageBuilder.buildImages(versionsData, imagesToBuildFiltered, params)
                     PIPELINE_REPORT.build = buildResult
                     if (buildResult.successful.size() == 0) {
-                        error("No images were built successfully. Aborting pipeline.")
+                        error('No images were built successfully. Aborting pipeline.')
                     }
                     if (buildResult.failed.size() > 0) {
                         unstable("WARNING: Failed to build images: ${buildResult.failed}")
                     }
                     echo "✓ Successfully built images: ${buildResult.successful.size()}"
-                    echo "=== Image Building Completed ==="
+                    echo '=== Image Building Completed ==='
                 }
             }
         }
@@ -224,7 +224,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Running Smoke Tests ==="
+                    echo '=== Running Smoke Tests ==='
                     def buildResult = PIPELINE_REPORT.build
                     def testResult = smokeTests.runSmokeTests(buildResult.successful)
                     PIPELINE_REPORT.smokeTests = testResult
@@ -233,7 +233,7 @@ pipeline {
                         unstable("WARNING: Smoke tests failed for: ${testResult.failed}")
                     }
                     echo "✓ Successfully passed smoke tests: ${testResult.successful.size()}"
-                    echo "=== Smoke Tests Completed ==="
+                    echo '=== Smoke Tests Completed ==='
                 }
             }
         }
@@ -244,7 +244,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Pushing Images to Registry ==="
+                    echo '=== Pushing Images to Registry ==='
                     def testResult = PIPELINE_REPORT.smokeTests
                     def pushResult = imagePusher.pushImages(testResult.successful, params)
                     PIPELINE_REPORT.push = pushResult
@@ -253,7 +253,7 @@ pipeline {
                         unstable("WARNING: Failed to push images: ${pushResult.failed}")
                     }
                     echo "✓ Successfully pushed images: ${pushResult.successful.size()}"
-                    echo "=== Image Pushing Completed ==="
+                    echo '=== Image Pushing Completed ==='
                 }
             }
         }
@@ -263,11 +263,11 @@ pipeline {
         always {
             script {
                 if (params.GENERATE_AND_SEND_REPORT) {
-                    echo "=== Generating Final Report ==="
+                    echo '=== Generating Final Report ==='
                     reportGenerator.generateFinalReport(PIPELINE_REPORT)
-                    sh "rm -rf generated/ || true"
+                    sh 'rm -rf generated/ || true'
                 } else {
-                    echo "⚠️ Report generation is disabled by parameter"
+                    echo '⚠️ Report generation is disabled by parameter'
                 }
                 deleteDir()
             }
@@ -283,24 +283,24 @@ pipeline {
                         // Collect failed images with their failure stages
                         PIPELINE_REPORT.generation?.failed?.each { image ->
                             failedImages.add(image)
-                            failureDetails[image] = "Generate Dockerfiles"
+                            failureDetails[image] = 'Generate Dockerfiles'
                         }
                         PIPELINE_REPORT.build?.failed?.each { image ->
                             if (!failedImages.contains(image)) {
                                 failedImages.add(image)
-                                failureDetails[image] = "Build Images"
+                                failureDetails[image] = 'Build Images'
                             }
                         }
                         PIPELINE_REPORT.smokeTests?.failed?.each { image ->
                             if (!failedImages.contains(image)) {
                                 failedImages.add(image)
-                                failureDetails[image] = "Smoke Tests"
+                                failureDetails[image] = 'Smoke Tests'
                             }
                         }
                         PIPELINE_REPORT.push?.failed?.each { image ->
                             if (!failedImages.contains(image)) {
                                 failedImages.add(image)
-                                failureDetails[image] = "Push Images to Registry"
+                                failureDetails[image] = 'Push Images to Registry'
                             }
                         }
 
@@ -318,7 +318,57 @@ ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('
                         echo "⚠️ Failed to send success notification: ${e.message}"
                     }
                 } else {
-                    echo "ℹ️ Skipping success notification due to disabled reporting"
+                    echo 'ℹ️ Skipping success notification due to disabled reporting'
+                }
+            }
+        }
+        unstable {
+            script {
+                if (params.GENERATE_AND_SEND_REPORT) {
+                    try {
+                        def successfulImages = PIPELINE_REPORT.push?.successful ?: []
+                        def failedImages = []
+                        def failureDetails = [:]
+
+                        // Collect failed images with their failure stages
+                        PIPELINE_REPORT.generation?.failed?.each { image ->
+                            failedImages.add(image)
+                            failureDetails[image] = 'Generate Dockerfiles'
+                        }
+                        PIPELINE_REPORT.build?.failed?.each { image ->
+                            if (!failedImages.contains(image)) {
+                                failedImages.add(image)
+                                failureDetails[image] = 'Build Images'
+                            }
+                        }
+                        PIPELINE_REPORT.smokeTests?.failed?.each { image ->
+                            if (!failedImages.contains(image)) {
+                                failedImages.add(image)
+                                failureDetails[image] = 'Smoke Tests'
+                            }
+                        }
+                        PIPELINE_REPORT.push?.failed?.each { image ->
+                            if (!failedImages.contains(image)) {
+                                failedImages.add(image)
+                                failureDetails[image] = 'Push Images to Registry'
+                            }
+                        }
+
+                        def message = """⚠️ Pipeline Unstable!
+✔ Successfully built and pushed images:
+${successfulImages.collect { "  - ${it}" }.join('\n') ?: 'None'}
+
+❌ Failed images:
+${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('\n') ?: 'None'}
+
+📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.html
+"""
+                        externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                    } catch (Exception e) {
+                        echo "⚠️ Failed to send unstable notification: ${e.message}"
+                    }
+                } else {
+                    echo 'ℹ️ Skipping unstable notification due to disabled reporting'
                 }
             }
         }
@@ -332,24 +382,24 @@ ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('
                         // Collect failed images with their failure stages
                         PIPELINE_REPORT.generation?.failed?.each { image ->
                             failedImages.add(image)
-                            failureDetails[image] = "Generate Dockerfiles"
+                            failureDetails[image] = 'Generate Dockerfiles'
                         }
                         PIPELINE_REPORT.build?.failed?.each { image ->
                             if (!failedImages.contains(image)) {
                                 failedImages.add(image)
-                                failureDetails[image] = "Build Images"
+                                failureDetails[image] = 'Build Images'
                             }
                         }
                         PIPELINE_REPORT.smokeTests?.failed?.each { image ->
                             if (!failedImages.contains(image)) {
                                 failedImages.add(image)
-                                failureDetails[image] = "Smoke Tests"
+                                failureDetails[image] = 'Smoke Tests'
                             }
                         }
                         PIPELINE_REPORT.push?.failed?.each { image ->
                             if (!failedImages.contains(image)) {
                                 failedImages.add(image)
-                                failureDetails[image] = "Push Images to Registry"
+                                failureDetails[image] = 'Push Images to Registry'
                             }
                         }
 
@@ -364,7 +414,7 @@ ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('
                         echo "⚠️ Failed to send failure notification: ${e.message}"
                     }
                 } else {
-                    echo "ℹ️ Skipping failure notification due to disabled reporting"
+                    echo 'ℹ️ Skipping failure notification due to disabled reporting'
                 }
             }
         }
