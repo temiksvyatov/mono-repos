@@ -4,6 +4,15 @@ import com.nmf.ci.utils.ExternalUtils
 def ExternalUtils externalUtils = new ExternalUtils(this)
 def PIPELINE_REPORT = [:]
 
+// Load scripts
+def utils = load 'jenkins/utils/Utils.groovy'
+def validation = load 'jenkins/validation/Validation.groovy'
+def dockerfileGenerator = load 'jenkins/dockerfile/DockerfileGenerator.groovy'
+def imageBuilder = load 'jenkins/builder/ImageBuilder.groovy'
+def smokeTests = load 'jenkins/tests/SmokeTests.groovy'
+def imagePusher = load 'jenkins/pusher/ImagePusher.groovy'
+def reportGenerator = load 'jenkins/report/ReportGenerator.groovy'
+
 pipeline {
     agent {
         node {
@@ -56,8 +65,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Starting Initial Validation ==="
-
+                    echo '=== Starting Initial Validation ==='
                     // Check existence of required files
                     def requiredFiles = [
                         'versions.yaml',
@@ -65,50 +73,41 @@ pipeline {
                         'common/config.yaml',
                         'tools/yq'
                     ]
-
                     requiredFiles.each { file ->
                         if (!fileExists(file)) {
                             error("Required file missing: ${file}")
                         }
                         echo "✓ File found: ${file}"
                     }
-
                     // Make yq executable
-                    sh "chmod +x tools/yq"
-
+                    sh 'chmod +x tools/yq'
                     // Read and parse versions.yaml
                     def versionsYaml
                     try {
                         versionsYaml = readYaml file: 'versions.yaml'
                     } catch (Exception e) {
-                        echo "WARNING: readYaml not available, falling back to yq for versions.yaml"
-                        versionsYaml = sh(script: "./tools/yq eval -o=json versions.yaml", returnStdout: true).trim()
+                        echo 'WARNING: readYaml not available, falling back to yq for versions.yaml'
+                        versionsYaml = sh(script: './tools/yq eval -o=json versions.yaml', returnStdout: true).trim()
                         versionsYaml = readJSON text: versionsYaml
                     }
                     env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
-
                     // Determine images to build
-                    def imagesToBuild = determineImagesToBuild(versionsYaml)
+                    def changedFiles = utils.getChangedFiles()
+                    def changedImages = utils.getChangedImages(changedFiles)
+                    def imagesToBuild = utils.determineImagesToBuild(versionsYaml, changedImages, params.IMAGES_TO_BUILD)
                     env.IMAGES_TO_BUILD_LIST = writeJSON returnText: true, json: imagesToBuild
-
                     echo "Images to build: ${imagesToBuild}"
-
                     // Validate image directories
-                    validateImageDirectories(imagesToBuild)
-
+                    validation.validateImageDirectories(imagesToBuild)
                     // Validate file integrity
-                    validateFileIntegrity(versionsYaml, imagesToBuild)
-
+                    validation.validateFileIntegrity(versionsYaml, imagesToBuild)
                     PIPELINE_REPORT.validation = [
                         status: 'SUCCESS',
                         message: 'Initial validation completed successfully',
                         imagesCount: imagesToBuild.size()
                     ]
-
-                    // Save PIPELINE_REPORT to env
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-
-                    echo "=== Initial Validation Completed Successfully ==="
+                    echo '=== Initial Validation Completed Successfully ==='
                 }
             }
         }
@@ -119,9 +118,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Setting Up Environment ==="
-
-                    // Check existence of builder image
+                    echo '=== Setting Up Environment ==='
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         try {
                             retry(3) {
@@ -133,17 +130,13 @@ pipeline {
                             error("Failed to find or pull builder image: ${params.BUILDER_IMAGE}. Error: ${e.message}")
                         }
                     }
-
                     PIPELINE_REPORT.environment = [
                         status: 'SUCCESS',
                         message: 'Environment setup completed successfully',
                         builderImage: params.BUILDER_IMAGE
                     ]
-
-                    // Update PIPELINE_REPORT in env
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-
-                    echo "=== Environment Setup Completed ==="
+                    echo '=== Environment Setup Completed ==='
                 }
             }
         }
@@ -154,13 +147,10 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Generating Dockerfiles ==="
-
+                    echo '=== Generating Dockerfiles ==='
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
-
                         builderImage.inside() {
-                            // Create virtual environment and install packages
                             sh '''
                                 python3 -m venv venv
                                 source venv/bin/activate
@@ -169,29 +159,20 @@ pipeline {
                                 python3 -c "import yaml; print('PyYAML installed successfully')"
                                 python3 -c "import jinja2; print('Jinja2 installed successfully')"
                             '''
-
-                            // Generate Dockerfiles
-                            def generationResult = generateDockerfiles()
-
-                            // Check result
+                            def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
+                            def generationResult = dockerfileGenerator.generateDockerfiles(imagesToBuild)
                             if (generationResult.successful.size() == 0) {
-                                error("No Dockerfiles were generated successfully. Aborting pipeline.")
+                                error('No Dockerfiles were generated successfully. Aborting pipeline.')
                             }
-
                             PIPELINE_REPORT.generation = generationResult
-
-                            // Update PIPELINE_REPORT in env
                             env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-
                             if (generationResult.failed.size() > 0) {
                                 echo "WARNING: Failed to generate Dockerfiles for: ${generationResult.failed}"
                             }
-
                             echo "✓ Successfully generated Dockerfiles: ${generationResult.successful.size()}"
                         }
                     }
-
-                    echo "=== Dockerfile Generation Completed ==="
+                    echo '=== Dockerfile Generation Completed ==='
                 }
             }
         }
@@ -202,31 +183,23 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Building Images ==="
-
+                    echo '=== Building Images ==='
                     def versionsData = readJSON text: env.VERSIONS_DATA
                     def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
                     def generationResult = PIPELINE_REPORT.generation
-
-                    // Filter only successfully generated images
                     def imagesToBuildFiltered = imagesToBuild.findAll {
                         generationResult.successful.contains(it)
                     }
-
-                    def buildResult = buildImages(versionsData, imagesToBuildFiltered)
-
+                    def buildResult = imageBuilder.buildImages(versionsData, imagesToBuildFiltered, params)
                     PIPELINE_REPORT.build = buildResult
-
                     if (buildResult.successful.size() == 0) {
-                        error("No images were built successfully. Aborting pipeline.")
+                        error('No images were built successfully. Aborting pipeline.')
                     }
-
                     if (buildResult.failed.size() > 0) {
                         echo "WARNING: Failed to build images: ${buildResult.failed}"
                     }
-
                     echo "✓ Successfully built images: ${buildResult.successful.size()}"
-                    echo "=== Image Building Completed ==="
+                    echo '=== Image Building Completed ==='
                 }
             }
         }
@@ -237,22 +210,16 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Running Smoke Tests ==="
-
+                    echo '=== Running Smoke Tests ==='
                     def buildResult = PIPELINE_REPORT.build
-                    def testResult = runSmokeTests(buildResult.successful)
-
+                    def testResult = smokeTests.runSmokeTests(buildResult.successful)
                     PIPELINE_REPORT.smokeTests = testResult
-
-                    // Update PIPELINE_REPORT in env
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-
                     if (testResult.failed.size() > 0) {
                         echo "WARNING: Smoke tests failed for: ${testResult.failed}"
                     }
-
                     echo "✓ Successfully passed smoke tests: ${testResult.successful.size()}"
-                    echo "=== Smoke Tests Completed ==="
+                    echo '=== Smoke Tests Completed ==='
                 }
             }
         }
@@ -263,664 +230,77 @@ pipeline {
             }
             steps {
                 script {
-                    echo "=== Pushing Images to Registry ==="
-
+                    echo '=== Pushing Images to Registry ==='
                     def testResult = PIPELINE_REPORT.smokeTests
-                    def pushResult = pushImages(testResult.successful)
-
+                    def pushResult = imagePusher.pushImages(testResult.successful, params)
                     PIPELINE_REPORT.push = pushResult
-
-                    // Update PIPELINE_REPORT in env
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-
                     if (pushResult.failed.size() > 0) {
                         echo "WARNING: Failed to push images: ${pushResult.failed}"
                     }
-
                     echo "✓ Successfully pushed images: ${pushResult.successful.size()}"
-                    echo "=== Image Pushing Completed ==="
+                    echo '=== Image Pushing Completed ==='
                 }
             }
         }
     }
 
-    // post {
-    //     always {
-    //         script {
-    //             if (params.GENERATE_AND_SEND_REPORT) {
-    //                 echo "=== Generating Final Report ==="
-    //                 generateFinalReport()
-    //                 sh "rm -rf generated/ || true"
-    //             } else {
-    //                 echo "⚠️ Report generation is disabled by parameter"
-    //             }
-    //             cleanWs()
-    //         }
-    //     }
-
-    //     success {
-    //         script {
-    //             if (params.GENERATE_AND_SEND_REPORT) {
-    //                 try {
-    //                     def builtCount = PIPELINE_REPORT.build?.successful?.size() ?: 0
-    //                     def pushCount = PIPELINE_REPORT.push?.successful?.size() ?: 0
-    //                     def testFailures = PIPELINE_REPORT.smokeTests?.failed?.size() ?: 0
-
-    //                     def message = """✅ Pipeline Succeeded!
-    // ✔ Built Images: ${builtCount}
-    // 🔬 Smoke Test Failures: ${testFailures}
-    // 📤 Successfully Pushed: ${pushCount}
-    // 📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
-    // """
-
-    //                     externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
-    //                 } catch (Exception e) {
-    //                     echo "⚠️ Failed to send success notification: ${e.message}"
-    //                 }
-    //             } else {
-    //                 echo "ℹ️ Skipping success notification due to disabled reporting"
-    //             }
-    //         }
-    //     }
-
-    //     failure {
-    //         script {
-    //             if (params.GENERATE_AND_SEND_REPORT) {
-    //                 try {
-    //                     def builtFail = PIPELINE_REPORT.build?.failed?.size() ?: 0
-    //                     def pushFail = PIPELINE_REPORT.push?.failed?.size() ?: 0
-
-    //                     def message = """❌ Pipeline Failed!
-    // ✖ Failed Builds: ${builtFail}
-    // ✖ Failed Pushes: ${pushFail}
-    // 📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
-    // """
-
-    //                     externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
-    //                 } catch (Exception e) {
-    //                     echo "⚠️ Failed to send failure notification: ${e.message}"
-    //                 }
-    //             } else {
-    //                 echo "ℹ️ Skipping failure notification due to disabled reporting"
-    //             }
-    //         }
-    //     }
-    // }
-}
-
-// ================== FUNCTIONS ==================
-
-def determineImagesToBuild(versionsYaml) {
-    def imagesToBuild = []
-
-    // Priority 1: Check for changes in Git
-    def changedFiles = getChangedFiles()
-    def changedImages = getChangedImages(changedFiles)
-
-    if (changedImages.size() > 0) {
-        echo "Detected changes in images: ${changedImages}"
-        return changedImages
-    }
-
-    // Priority 2: IMAGES_TO_BUILD parameter
-    if (params.IMAGES_TO_BUILD == 'all') {
-        versionsYaml.each { key, value ->
-            if (value instanceof List) {
-                imagesToBuild.add(key)
-            } else if (value instanceof Map) {
-                value.each { subKey, subValue ->
-                    imagesToBuild.add("${key}/${subKey}")
-                }
-            }
-        }
-    } else {
-        imagesToBuild = params.IMAGES_TO_BUILD.split(',').collect { it.trim() }
-    }
-
-    return imagesToBuild
-}
-
-def getChangedFiles() {
-    try {
-        def changes = sh(
-            script: 'git diff --name-only HEAD~1 HEAD || echo ""',
-            returnStdout: true
-        ).trim()
-        return changes ? changes.split('\n') : []
-    } catch (Exception e) {
-        echo "Failed to retrieve changed files: ${e.message}"
-        return []
-    }
-}
-
-def getChangedImages(changedFiles) {
-    def changedImages = []
-    changedFiles.each { file ->
-        if (file.startsWith('images/')) {
-            def parts = file.split('/')
-            if (parts.length >= 2) {
-                if (parts.length == 3 && (parts[2] == 'Dockerfile.j2' || parts[2] == 'config.yaml')) {
-                    changedImages.add(parts[1])
-                }
-                else if (parts.length == 4 && (parts[3] == 'Dockerfile.j2' || parts[3] == 'config.yaml')) {
-                    changedImages.add("${parts[1]}/${parts[2]}")
-                }
-                changedImages = changedImages.unique()
-            }
-        }
-    }
-    return changedImages
-}
-
-def validateImageDirectories(imagesToBuild) {
-    imagesToBuild.each { image ->
-        def imageDir = "images/${image.replace('/', File.separator)}"
-        if (!fileExists(imageDir)) {
-            error("Image directory missing: ${imageDir}")
-        }
-
-        def requiredFiles = ['Dockerfile.j2', 'config.yaml']
-        requiredFiles.each { file ->
-            def filePath = "${imageDir}/${file}"
-            if (!fileExists(filePath)) {
-                error("File missing: ${filePath}")
-            }
-        }
-
-        echo "✓ Validated image directory: ${imageDir}"
-    }
-}
-def validateFileIntegrity(versionsYaml, imagesToBuild) {
-    // Validate versions.yaml structure
-    imagesToBuild.each { image ->
-        def imageParts = image.split('/')
-        def imageData = versionsYaml[imageParts[0]]
-
-        if (imageParts.length > 1) {
-            imageData = imageData[imageParts[1]]
-        }
-
-        if (!imageData) {
-            error("Image ${image} not found in versions.yaml")
-        }
-
-        if (imageData instanceof List) {
-            imageData.each { version ->
-                if (!version.base_image) {
-                    error("Missing base_image for ${image}")
-                }
-                if (!version.version) {
-                    error("Missing version for ${image}")
-                }
-            }
-        }
-    }
-
-    // Validate common/config.yaml
-    def commonConfig
-    try {
-        commonConfig = readYaml file: 'common/config.yaml'
-    } catch (Exception e) {
-        echo "WARNING: readYaml not available, falling back to yq for config.yaml"
-        sh "chmod +x tools/yq"
-        commonConfig = sh(script: "./tools/yq eval -o=json common/config.yaml", returnStdout: true).trim()
-        commonConfig = readJSON text: commonConfig
-    }
-
-    if (!commonConfig.default) {
-        error("Missing default section in common/config.yaml")
-    }
-
-    echo "✓ File integrity validation completed"
-}
-
-def generateDockerfiles() {
-    def successful = []
-    def failed = []
-
-    def versionsData = readJSON text: env.VERSIONS_DATA
-    def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
-
-    imagesToBuild.each { image ->
-        try {
-            echo "Generating Dockerfile for ${image}"
-
-            // Create Python script for generation
-            def pythonScript = '''
-import yaml
-import json
-import os
-import sys
-from jinja2 import Template
-
-def generate_dockerfile(image_name, image_data, common_config, dockerfile_template):
-    """Generates Dockerfile for the image"""
-
-    # Merge configurations
-    final_config = {}
-    final_config.update(common_config.get('default', {}))
-
-    # Read local image configuration
-    local_config_path = f"images/{image_name}/config.yaml"
-    if os.path.exists(local_config_path):
-        with open(local_config_path, 'r') as f:
-            local_config = yaml.safe_load(f)
-            if local_config:
-                final_config.update(local_config)
-
-    # Add data from versions.yaml
-    final_config.update(image_data)
-    final_config['name'] = image_name
-
-    # Generate Dockerfile
-    template = Template(dockerfile_template)
-    dockerfile_content = template.render(**final_config)
-
-    return dockerfile_content
-
-if __name__ == "__main__":
-    image_name = sys.argv[1]
-
-    # Read configurations
-    with open('versions.yaml', 'r') as f:
-        versions_data = yaml.safe_load(f)
-
-    with open('common/config.yaml', 'r') as f:
-        common_config = yaml.safe_load(f)
-
-    with open('common/templates/Dockerfile.common.j2', 'r') as f:
-        dockerfile_template = f.read()
-
-    # Get image data
-    image_parts = image_name.split('/')
-    image_data = versions_data[image_parts[0]]
-
-    if len(image_parts) > 1:
-        image_data = image_data[image_parts[1]]
-
-    if isinstance(image_data, list):
-        # For each version
-        for version_data in image_data:
-            dockerfile_content = generate_dockerfile(image_name, version_data, common_config, dockerfile_template)
-
-            # Save Dockerfile
-            os.makedirs(f"generated/{image_name}/{version_data['version']}", exist_ok=True)
-            with open(f"generated/{image_name}/{version_data['version']}/Dockerfile", 'w') as f:
-                f.write(dockerfile_content)
-
-            print(f"Generated Dockerfile for {image_name}:{version_data['version']}")
-    else:
-        dockerfile_content = generate_dockerfile(image_name, image_data, common_config, dockerfile_template)
-
-        # Save Dockerfile
-        os.makedirs(f"generated/{image_name}", exist_ok=True)
-        with open(f"generated/{image_name}/Dockerfile", 'w') as f:
-            f.write(dockerfile_content)
-
-        print(f"Generated Dockerfile for {image_name}")
-'''
-
-            writeFile file: 'generate_dockerfile.py', text: pythonScript
-
-            // Run Python script with activated virtual environment
-            def result = sh(
-                script: """
-                    source venv/bin/activate
-                    python3 generate_dockerfile.py '${image}'
-                """,
-                returnStatus: true
-            )
-
-            if (result == 0) {
-                successful.add(image)
-                echo "✓ Successfully generated Dockerfile for ${image}"
-            } else {
-                failed.add(image)
-                echo "✗ Error generating Dockerfile for ${image}"
-            }
-
-        } catch (Exception e) {
-            failed.add(image)
-            echo "✗ Exception while generating Dockerfile for ${image}: ${e.message}"
-        }
-    }
-
-    return [
-        successful: successful,
-        failed: failed
-    ]
-}
-
-def buildImages(versionsData, imagesToBuild) {
-    def successful = []
-    def failed = []
-
-    // Group by priority
-    def imagesByPriority = [:]
-
-    imagesToBuild.each { image ->
-        def imageParts = image.split('/')
-        def imageData = versionsData[imageParts[0]]
-
-        if (imageParts.length > 1) {
-            imageData = imageData[imageParts[1]]
-        }
-
-        if (imageData instanceof List) {
-            imageData.each { version ->
-                def priority = version.priority ?: 1000
-                if (!imagesByPriority[priority]) {
-                    imagesByPriority[priority] = []
-                }
-                imagesByPriority[priority].add([image: image, version: version])
-            }
-        }
-    }
-
-    // Sort by priority
-    def sortedPriorities = imagesByPriority.keySet().sort()
-
-    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-        sortedPriorities.each { priority ->
-            def imagesInPriority = imagesByPriority[priority]
-            def maxThreads = params.MAX_PARALLEL_THREADS.toInteger()
-            def imageGroups = imagesInPriority.collate(maxThreads)
-
-            imageGroups.each { group ->
-                if (params.BUILD_MODE == 'parallel') {
-                    // Parallel build
-                    def parallelBuilds = [:]
-
-                    group.each { item ->
-                        def imageKey = "${item.image}:${item.version.version}"
-                        parallelBuilds[imageKey] = {
-                            buildSingleImage(item.image, item.version, successful, failed)
-                        }
-                    }
-
-                    parallel parallelBuilds
+    post {
+        always {
+            script {
+                if (params.GENERATE_AND_SEND_REPORT) {
+                    echo '=== Generating Final Report ==='
+                    reportGenerator.generateFinalReport(PIPELINE_REPORT)
+                    sh 'rm -rf generated/ || true'
                 } else {
-                    // Sequential build
-                    group.each { item ->
-                        buildSingleImage(item.image, item.version, successful, failed)
-                    }
+                    echo '⚠️ Report generation is disabled by parameter'
                 }
+                cleanWs()
             }
         }
-    }
+        success {
+            script {
+                if (params.GENERATE_AND_SEND_REPORT) {
+                    try {
+                        def builtCount = PIPELINE_REPORT.build?.successful?.size() ?: 0
+                        def pushCount = PIPELINE_REPORT.push?.successful?.size() ?: 0
+                        def testFailures = PIPELINE_REPORT.smokeTests?.failed?.size() ?: 0
 
-    return [
-        successful: successful,
-        failed: failed
-    ]
-}
-
-def buildSingleImage(imageName, versionData, successful, failed) {
-    try {
-        def imageTag = "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/${imageName.replace('/', '-')}:${versionData.version}"
-
-        def dockerfilePath = "generated/${imageName}/${versionData.version}/Dockerfile"
-        echo "Checking Dockerfile existence at: ${dockerfilePath}"
-        if (!fileExists(dockerfilePath)) {
-            error("Dockerfile not found at: ${dockerfilePath}")
-        }
-
-        echo "Building image: ${imageTag}"
-        def buildResult = sh(
-            script: "docker build --no-cache --pull --progress=plain -t ${imageTag} -f ${dockerfilePath} .",
-            returnStatus: true
-        )
-
-        if (buildResult == 0) {
-            successful.add(imageTag)
-            echo "✓ Successfully built image: ${imageTag}"
-        } else {
-            failed.add(imageTag)
-            echo "✗ Error building image: ${imageTag}"
-            // Вывод логов сборки для диагностики
-            sh "docker build --no-cache --pull --progress=plain -t ${imageTag} -f ${dockerfilePath} . || true"
-        }
-    } catch (Exception e) {
-        failed.add("${imageName}:${versionData.version}")
-        echo "✗ Exception while building image ${imageName}:${versionData.version}: ${e.message}"
-    }
-}
-
-def runSmokeTests(builtImages) {
-    def successful = []
-    def failed = []
-
-    builtImages.each { image ->
-        try {
-            echo "Running smoke test for ${image}"
-
-            def testResult = runSmokeTestForImage(image)
-
-            if (testResult) {
-                successful.add(image)
-                echo "✓ Smoke test passed for ${image}"
-            } else {
-                failed.add(image)
-                echo "✗ Smoke test failed for ${image}"
-            }
-
-        } catch (Exception e) {
-            failed.add(image)
-            echo "✗ Exception while running smoke test for ${image}: ${e.message}"
-        }
-    }
-
-    return [
-        successful: successful,
-        failed: failed
-    ]
-}
-
-def runSmokeTestForImage(image) {
-    def imageParts = image.split(':')
-    def imageType = imageParts[0].split('/')[3].split('-')[0]
-
-    switch (imageType) {
-        case 'python':
-            return testPythonImage(image)
-        case 'node':
-            return testNodeImage(image)
-        case 'java':
-            return testJavaImage(image)
-        case 'alpine':
-            return testAlpineImage(image)
-        case 'nginx':
-            return testNginxImage(image)
-        default:
-            return testGenericImage(image)
-    }
-}
-
-def testPythonImage(image) {
-    def result = sh(
-        script: """
-            timeout 30 docker run --rm ${image} python -c "
-import sys
-import os
-print(f'Python version: {sys.version}')
-print(f'User: {os.getuid()}')
-print(f'Working directory: {os.getcwd()}')
-# Check installed packages
-import subprocess
-result = subprocess.run(['pip', 'list'], capture_output=True, text=True)
-print(f'Installed packages: {len(result.stdout.splitlines())} packages')
-"
-        """,
-        returnStatus: true
-    )
-    return result == 0
-}
-
-def testNodeImage(image) {
-    def result = sh(
-        script: """
-            timeout 30 docker run --rm ${image} sh -c "
-                node --version &&
-                npm --version &&
-                whoami &&
-                pwd &&
-                echo 'Node.js smoke test passed'
-            "
-        """,
-        returnStatus: true
-    )
-    return result == 0
-}
-
-def testJavaImage(image) {
-    def result = sh(
-        script: """
-            timeout 30 docker run --rm ${image} sh -c "
-                java -version &&
-                javac -version 2>&1 || echo 'javac not available' &&
-                whoami &&
-                pwd &&
-                echo 'Java smoke test passed'
-            "
-        """,
-        returnStatus: true
-    )
-    return result == 0
-}
-
-def testAlpineImage(image) {
-    def result = sh(
-        script: """
-            timeout 30 docker run --rm ${image} sh -c "
-                apk --version &&
-                whoami &&
-                pwd &&
-                ls -la /usr/local/share/ca-certificates/ &&
-                echo 'Alpine smoke test passed'
-            "
-        """,
-        returnStatus: true
-    )
-    return result == 0
-}
-
-def testNginxImage(image) {
-    def result = sh(
-        script: """
-            timeout 30 docker run --rm ${image} sh -c "
-                nginx -v &&
-                whoami &&
-                pwd &&
-                echo 'Nginx smoke test passed'
-            "
-        """,
-        returnStatus: true
-    )
-    return result == 0
-}
-
-def testGenericImage(image) {
-    def result = sh(
-        script: """
-            timeout 30 docker run --rm ${image} sh -c "
-                whoami &&
-                pwd &&
-                echo 'Generic smoke test passed'
-            "
-        """,
-        returnStatus: true
-    )
-    return result == 0
-}
-
-def pushImages(testedImages) {
-    def successful = []
-    def failed = []
-
-    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-        testedImages.each { image ->
-            try {
-                echo "Pushing image: ${image}"
-
-                retry(3) {
-                    def pushResult = sh(
-                        script: "docker push ${image}",
-                        returnStatus: true
-                    )
-
-                    if (pushResult == 0) {
-                        successful.add(image)
-                        echo "✓ Successfully pushed image: ${image}"
-                    } else {
-                        failed.add(image)
-                        echo "✗ Error pushing image: ${image}"
-                        error("Push failed for ${image}")
-                    }
-                }
-
-            } catch (Exception e) {
-                failed.add(image)
-                echo "✗ Exception while pushing image ${image}: ${e.message}"
-            }
-        }
-    }
-
-    return [
-        successful: successful,
-        failed: failed
-    ]
-}
-
-def generateFinalReport() {
-    // Deserialize PIPELINE_REPORT from env
-    def pipelineReport = env.PIPELINE_REPORT ? readJSON(text: env.PIPELINE_REPORT) : [:]
-
-    def report = """
-=== FINAL PIPELINE REPORT ===
-
-Execution Date: ${new Date()}
-Build Mode: ${params.BUILD_MODE}
-Images to Build: ${params.IMAGES_TO_BUILD}
-Maximum Parallel Threads: ${params.MAX_PARALLEL_THREADS}
-
-1. INITIAL VALIDATION
-   Status: ${pipelineReport.validation?.status ?: 'UNKNOWN'}
-   Message: ${pipelineReport.validation?.message ?: 'No data'}
-   Image Count: ${pipelineReport.validation?.imagesCount ?: 'N/A'}
-
-2. ENVIRONMENT SETUP
-   Status: ${pipelineReport.environment?.status ?: 'UNKNOWN'}
-   Message: ${pipelineReport.environment?.message ?: 'No data'}
-   Builder Image: ${pipelineReport.environment?.builderImage ?: 'N/A'}
-
-3. DOCKERFILE GENERATION
-   Successful: ${pipelineReport.generation?.successful?.size() ?: 0}
-   Failed: ${pipelineReport.generation?.failed?.size() ?: 0}
-   Failed Images: ${pipelineReport.generation?.failed?.join(', ') ?: 'None'}
-
-4. IMAGE BUILDING
-   Successful: ${pipelineReport.build?.successful?.size() ?: 0}
-   Failed: ${pipelineReport.build?.failed?.size() ?: 0}
-   Failed Images: ${pipelineReport.build?.failed?.join(', ') ?: 'None'}
-
-5. SMOKE TESTS
-   Successful: ${pipelineReport.smokeTests?.successful?.size() ?: 0}
-   Failed: ${pipelineReport.smokeTests?.failed?.size() ?: 0}
-   Failed Images: ${pipelineReport.smokeTests?.failed?.join(', ') ?: 'None'}
-
-6. PUSH TO REGISTRY
-   Successful: ${pipelineReport.push?.successful?.size() ?: 0}
-   Failed: ${pipelineReport.push?.failed?.size() ?: 0}
-   Failed Images: ${pipelineReport.push?.failed?.join(', ') ?: 'None'}
-
-=== END OF REPORT ===
+                        def message = """✅ Pipeline Succeeded!
+✔ Built Images: ${builtCount}
+🔬 Smoke Test Failures: ${testFailures}
+📤 Successfully Pushed: ${pushCount}
+📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
 """
+                        externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                    } catch (Exception e) {
+                        echo "⚠️ Failed to send success notification: ${e.message}"
+                    }
+                } else {
+                    echo 'ℹ️ Skipping success notification due to disabled reporting'
+                }
+            }
+        }
+        failure {
+            script {
+                if (params.GENERATE_AND_SEND_REPORT) {
+                    try {
+                        def builtFail = PIPELINE_REPORT.build?.failed?.size() ?: 0
+                        def pushFail = PIPELINE_REPORT.push?.failed?.size() ?: 0
 
-    echo report
-
-    // Save report to file
-    writeFile file: 'pipeline_report.txt', text: report
-
-    // Archive report
-    archiveArtifacts artifacts: 'pipeline_report.txt', allowEmptyArchive: true
+                        def message = """❌ Pipeline Failed!
+✖ Failed Builds: ${builtFail}
+✖ Failed Pushes: ${pushFail}
+📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.txt
+"""
+                        externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
+                    } catch (Exception e) {
+                        echo "⚠️ Failed to send failure notification: ${e.message}"
+                    }
+                } else {
+                    echo 'ℹ️ Skipping failure notification due to disabled reporting'
+                }
+            }
+        }
+    }
 }
