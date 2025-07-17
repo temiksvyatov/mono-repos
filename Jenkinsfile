@@ -420,3 +420,4 @@ ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('
         }
     }
 }
+
