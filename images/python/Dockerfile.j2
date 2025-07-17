@@ -10,11 +10,6 @@ RUN {{ package_manager }} install -y --nodocs ca-certificates && \
     update-ca-trust extract && \
     {{ package_manager }} upgrade -y && \
     {{ package_manager }} install -y --nodocs {{ packages | join(' ') }} \
-    make gcc automake tar git gcc-c++ libcurl-devel libpq-devel libxml2-devel \
-    libxslt-devel openssl-devel bzip2-devel libffi-devel zlib-devel findutils \
-    patch httpd-devel mod_ssl mod_auth_gssapi mod_ldap mod_session atlas-devel \
-    gcc-gfortran libtool-ltdl ncurses-devel sqlite-devel kernel-ml kernel-ml-core \
-    kernel-ml-modules kernel-ml-modules-extra && \
     {{ package_manager }} clean all
 {% endblock %}
 

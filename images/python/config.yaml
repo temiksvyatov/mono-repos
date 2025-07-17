@@ -1,5 +1,4 @@
 name: docker-python-{{ version }}-ubi
-version: {{ version}}
 package_manager: microdnf
 copy:
   - source: common/files/pip.conf
