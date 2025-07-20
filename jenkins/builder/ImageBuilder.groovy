@@ -55,9 +55,38 @@ def buildImages(versionsData, imagesToBuild, params) {
     ]
 }
 
+def getImageTag(imageName, versionData) {
+    def registry = "docker-mf-middle-dev-local.nexign.com"
+    def basePath = "microservices/infra"
+    def version = versionData.version
+
+    // Mapping logic for image names
+    switch (imageName) {
+        case 'alpine':
+            return "${registry}/${basePath}/runtime/base/docker-base-alpine:${version}"
+        case 'node':
+            return "${registry}/${basePath}/build/node/docker-node${version}-alpine:latest"
+        case 'nginx':
+            return "${registry}/${basePath}/runtime/nginx/docker-nginx-alpine:${version}"
+        case 'python':
+            return "${registry}/${basePath}/build/python/docker-python${version.replace('.', '')}-ubi:${version}"
+        case 'java/maven':
+            return "${registry}/${basePath}/build/java/docker-java${version}maven-alpine:${version}"
+        case 'java/gradle':
+            return "${registry}/${basePath}/build/java/docker-java${version}gradle-alpine:${version}"
+        case 'jre':
+            return "${registry}/${basePath}/runtime/java/docker-java${version}jre-alpine:${version}"
+        case 'golang':
+            return "${registry}/${basePath}/build/golang/docker-golang-alpine:${version}"
+        default:
+            // Fallback to original naming if no mapping is defined
+            return "${registry}/${basePath}/runtime/base/${imageName.replace('/', '-')}:${version}"
+    }
+}
+
 def buildSingleImage(imageName, versionData, successful, failed) {
     try {
-        def imageTag = "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/${imageName.replace('/', '-')}:${versionData.version}"
+        def imageTag = getImageTag(imageName, versionData)
         def dockerfilePath = "generated/${imageName}/${versionData.version}/Dockerfile"
         echo "Checking Dockerfile existence at: ${dockerfilePath}"
         if (!fileExists(dockerfilePath)) {
@@ -79,8 +108,9 @@ def buildSingleImage(imageName, versionData, successful, failed) {
             sh "docker build --no-cache --pull --progress=plain -t ${imageTag} -f ${dockerfilePath} . || true"
         }
     } catch (Exception e) {
-        failed.add("${imageName}:${versionData.version}")
-        echo "✗ Exception while building image ${imageName}:${versionData.version}: ${e.message}"
+        def imageTag = getImageTag(imageName, versionData)
+        failed.add(imageTag)
+        echo "✗ Exception while building image ${imageTag}: ${e.message}"
     }
 }
 
