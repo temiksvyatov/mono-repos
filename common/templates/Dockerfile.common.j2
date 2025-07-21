@@ -21,13 +21,17 @@ COPY {{ copy_item.source }} {{ copy_item.dest }}
     {% endif %}
 {% endblock %}
 
-{# General commands #}
-{% for run_cmd in run %}
-RUN {{ run_cmd }}
-{% endfor %}
-
-{# Additional setup steps #}
-{% block post_install %}{% endblock %}
+{# Post-installation steps #}
+{% block post_install %}
+    {% if package_manager == 'apk' %}
+        RUN update-ca-certificates
+    {% endif %}
+    {% for run_cmd in run %}
+        {% if run_cmd != 'update-ca-certificates' %}
+            RUN {{ run_cmd }}
+        {% endif %}
+    {% endfor %}
+{% endblock %}
 
 {# User creation #}
 {% for user in users %}
