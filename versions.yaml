@@ -37,7 +37,7 @@ python:
     python_minor_version: 311
 nginx:
   - version: latest
-    base_image: docker.nexign.com/alpine:latest
+    base_image: docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/docker-base-alpine:latest
 jre:
   - version: 11
     base_image: docker.nexign.com/eclipse-temurin:11-jre-alpine
