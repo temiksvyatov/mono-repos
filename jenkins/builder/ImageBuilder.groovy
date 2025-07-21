@@ -69,7 +69,7 @@ def getImageTag(imageName, versionData) {
         case 'nginx':
             return "${registry}/${basePath}/runtime/nginx/docker-nginx-alpine:latest"
         case 'python':
-            return "${registry}/${basePath}/build/python/docker-python${version.replace('.', '')}-ubi:latest"
+            return "${registry}/${basePath}/build/python/docker-python${version}-ubi:latest"
         case 'java/maven':
             return "${registry}/${basePath}/build/java/docker-java${version}maven-alpine:latest"
         case 'java/gradle':
