@@ -63,24 +63,24 @@ def getImageTag(imageName, versionData) {
     // Mapping logic for image names
     switch (imageName) {
         case 'alpine':
-            return "${registry}/${basePath}/runtime/base/docker-base-alpine:${version}"
+            return "${registry}/${basePath}/runtime/base/docker-base-alpine:latest"
         case 'node':
             return "${registry}/${basePath}/build/node/docker-node${version}-alpine:latest"
         case 'nginx':
-            return "${registry}/${basePath}/runtime/nginx/docker-nginx-alpine:${version}"
+            return "${registry}/${basePath}/runtime/nginx/docker-nginx-alpine:latest"
         case 'python':
-            return "${registry}/${basePath}/build/python/docker-python${version.replace('.', '')}-ubi:${version}"
+            return "${registry}/${basePath}/build/python/docker-python${version.replace('.', '')}-ubi:latest"
         case 'java/maven':
-            return "${registry}/${basePath}/build/java/docker-java${version}maven-alpine:${version}"
+            return "${registry}/${basePath}/build/java/docker-java${version}maven-alpine:latest"
         case 'java/gradle':
-            return "${registry}/${basePath}/build/java/docker-java${version}gradle-alpine:${version}"
+            return "${registry}/${basePath}/build/java/docker-java${version}gradle-alpine:latest"
         case 'jre':
-            return "${registry}/${basePath}/runtime/java/docker-java${version}jre-alpine:${version}"
+            return "${registry}/${basePath}/runtime/java/docker-java${version}jre-alpine:latest"
         case 'golang':
-            return "${registry}/${basePath}/build/golang/docker-golang-alpine:${version}"
+            return "${registry}/${basePath}/build/golang/docker-golang-alpine:latest"
         default:
             // Fallback to original naming if no mapping is defined
-            return "${registry}/${basePath}/runtime/base/${imageName.replace('/', '-')}:${version}"
+            return "${registry}/${basePath}/runtime/base/${imageName.replace('/', '-')}:latest"
     }
 }
 
