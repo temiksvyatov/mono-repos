@@ -28,14 +28,14 @@ COPY {{ copy_item.source }} {{ copy_item.dest }}
     {% endif %}
     RUN \ {% for run_cmd in run %}
         {% if run_cmd != 'update-ca-certificates' %}
-            {{ run_cmd }}
+            {{ run_cmd }} {% if not loop.last %}\{% endif %}
         {% endif %}
     {% endfor %}
 {% endblock %}
 
 {# User creation #}
 RUN \ {% for user in users %}
-    adduser -u {{ user.uid }} {{ user.name }} -D
+    adduser -u {{ user.uid }} {{ user.name }} -D {% if not loop.last %}\{% endif %}
 {% endfor %}
 
 {# ENVs setup #}
