@@ -6,3 +6,4 @@ copy:
     dest: /etc/nginx/nginx.conf
   - source: common/files/default.conf
     dest: /etc/nginx/http.d/default.conf
+
