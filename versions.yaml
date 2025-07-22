@@ -32,7 +32,7 @@ python:
     python_full_version: 3.10
     python_minor_version: 310
   - version: 311
-    base_image: docker.nexign.com/ubi9/python-311
+    base_image: docker.nexign.com/ubi9/ubi-minimal:latest
     python_full_version: 3.11
     python_minor_version: 311
 nginx:
