@@ -9,8 +9,7 @@ COPY {{ copy_item.source }} {{ copy_item.dest }}
 {# Setup packages #}
 {% block package_installation %}
     {% if package_manager == 'apk' %}
-        RUN apk add --no-cache {{ packages | join(' ') }} \
-            {% if 'update-ca-certificates' in run %} && update-ca-certificates {% endif %}
+        RUN apk add --no-cache {{ packages | join(' ') }}
     {% elif package_manager == 'microdnf' %}
         RUN microdnf install -y --nodocs {{ packages | join(' ') }}
     {% elif package_manager == 'dnf' %}
