@@ -44,6 +44,9 @@ COPY {% for copy_item in copy %}{{ copy_item.source }} {{ copy_item.dest }} {% e
 {% if env %}
 ENV {% for key, value in env.items() %}{{ key }}='{{ value }}' \
     {% endfor %}
+    PATH=/usr/sbin:$PATH
+{% else %}
+ENV PATH=/usr/sbin:$PATH
 {% endif %}
 {% block extra_env %}{% endblock %}
 
