@@ -26,15 +26,15 @@ RUN useradd -m -u 11200 mf-user -s /bin/bash &&\
 
 
 RUN --mount=type=secret,id=tok \
-    curl -H "X-JFrog-Art-Api: $(cat /run/secrets/tok)" {{python_registry}}/${{python_full_version}}/Python-${{python_full_version}}.tgz -o Python-${{python_full_version}}.tgz
-RUN tar xzf Python-${{python_full_version}}.tgz && \
-    cd Python-${{python_full_version}} && \
+    curl -H "X-JFrog-Art-Api: $(cat /run/secrets/tok)" {{python_registry}}/{{python_full_version}}/Python-{{python_full_version}}.tgz -o Python-${{python_full_version}}.tgz
+RUN tar xzf Python-{{python_full_version}}.tgz && \
+    cd Python-{{python_full_version}} && \
     ./configure --enable-optimizations --enable-loadable-sqlite-extensions && \
     make -j $(nproc) && \
     make altinstall && \
-    rm -rf /Python-${{python_full_version}}* && \
-    ln -s /usr/local/bin/python${{python_minor_version}} /usr/local/bin/python3 && \
-    ln -s /usr/local/bin/pip${{python_minor_version}} /usr/local/bin/pip && \
+    rm -rf /Python-{{python_full_version}}* && \
+    ln -s /usr/local/bin/python{{python_minor_version}} /usr/local/bin/python3 && \
+    ln -s /usr/local/bin/pip{{python_minor_version}} /usr/local/bin/pip && \
     pip install virtualenv && \
     pip install --upgrade setuptools && \
     python3 -m virtualenv ${APP_ROOT} && \
