@@ -12,9 +12,6 @@ RUN rm -f /etc/yum.repos.d/* && \
     {{ package_manager }} clean all
 {% endblock %}
 {% block specific %}
-ARG PYTHON_REGISTRY
-ARG PYTHON_FULL_VERSION
-ARG PYTHON_MINOR_VERSION
 ENV APP_ROOT=/opt/app-root
 ENV PATH=/opt/app-root/src/bin:/opt/app-root/bin:$HOME/.local/bin/:$PATH \
     PYTHONUNBUFFERED=1 \
@@ -29,15 +26,15 @@ RUN useradd -m -u 11200 mf-user -s /bin/bash &&\
 
 
 RUN --mount=type=secret,id=tok \
-    curl -H "X-JFrog-Art-Api: $(cat /run/secrets/tok)" ${PYTHON_REGISTRY}/${PYTHON_FULL_VERSION}/Python-${PYTHON_FULL_VERSION}.tgz -o Python-${PYTHON_FULL_VERSION}.tgz && \
-    tar xzf Python-${PYTHON_FULL_VERSION}.tgz && \
-    cd Python-${PYTHON_FULL_VERSION} && \
+    curl -H "X-JFrog-Art-Api: $(cat /run/secrets/tok)" ${python_registry}/${python_full_version}/Python-${python_full_version}.tgz -o Python-${python_full_version}.tgz && \
+    tar xzf Python-${python_full_version}.tgz && \
+    cd Python-${python_full_version} && \
     ./configure --enable-optimizations --enable-loadable-sqlite-extensions && \
     make -j $(nproc) && \
     make altinstall && \
-    rm -rf /Python-${PYTHON_FULL_VERSION}* && \
-    ln -s /usr/local/bin/python${PYTHON_MINOR_VERSION} /usr/local/bin/python3 && \
-    ln -s /usr/local/bin/pip${PYTHON_MINOR_VERSION} /usr/local/bin/pip && \
+    rm -rf /Python-${python_full_version}* && \
+    ln -s /usr/local/bin/python${python_minor_version} /usr/local/bin/python3 && \
+    ln -s /usr/local/bin/pip${python_minor_version} /usr/local/bin/pip && \
     pip install virtualenv && \
     pip install --upgrade setuptools && \
     python3 -m virtualenv ${APP_ROOT} && \

@@ -37,3 +37,4 @@ packages:
   - kernel-ml-modules
   - kernel-ml-modules-extra
 users:
+python_registry: https://artifactory.nexign.com:443/artifactory/python-ftp-remote
