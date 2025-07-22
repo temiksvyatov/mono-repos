@@ -86,35 +86,40 @@ pipeline {
             steps {
                 script {
                     echo '=== Starting Initial Validation ==='
-                    def requiredFiles = [
-                        'versions.yaml',
-                        'common/templates/Dockerfile.common.j2',
-                        'common/config.yaml',
-                        'tools/yq'
-                    ]
+
+                    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+                        def builderImage = docker.image(params.BUILDER_IMAGE)
+                        builderImage.inside() {
+                            def requiredFiles = [
+                                'versions.yaml',
+                                'common/templates/Dockerfile.common.j2',
+                                'common/config.yaml'
+                            ]
                     requiredFiles.each { file ->
                         if (!fileExists(file)) {
                             error("Required file missing: ${file}")
                         }
                         echo "✓ File found: ${file}"
                     }
-                    sh 'chmod +x tools/yq'
-                    def versionsYaml
-                    try {
+                            def versionsYaml
+                            try {
                         versionsYaml = readYaml file: 'versions.yaml'
                     } catch (Exception e) {
                         echo 'WARNING: readYaml not available, falling back to yq for versions.yaml'
-                        versionsYaml = sh(script: './tools/yq eval -o=json versions.yaml', returnStdout: true).trim()
+                        versionsYaml = sh(script: 'yq eval -o=json versions.yaml', returnStdout: true).trim()
                         versionsYaml = readJSON text: versionsYaml
                     }
                     env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
+
                     def changedFiles = utils.getChangedFiles()
                     def changedImages = utils.getChangedImages(changedFiles)
                     def imagesToBuild = utils.determineImagesToBuild(versionsYaml, changedImages, params.IMAGES_TO_BUILD)
                     env.IMAGES_TO_BUILD_LIST = writeJSON returnText: true, json: imagesToBuild
                     echo "Images to build: ${imagesToBuild}"
+
                     validation.validateImageDirectories(imagesToBuild)
                     validation.validateFileIntegrity(versionsYaml, imagesToBuild)
+
                     PIPELINE_REPORT.validation = [
                         status: 'SUCCESS',
                         message: 'Initial validation completed successfully',
@@ -123,6 +128,8 @@ pipeline {
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
                     echo '=== Initial Validation Completed Successfully ==='
                 }
+            }
+        }
             }
         }
 
