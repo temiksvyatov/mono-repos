@@ -21,6 +21,8 @@ ENV PATH=/opt/app-root/src/bin:/opt/app-root/bin:$HOME/.local/bin/:$PATH \
     PYTHONIOENCODING=UTF-8 \
     PIP_NO_CACHE_DIR=off
 
+USER 0
+
 RUN useradd -m -u 11200 mf-user -s /bin/bash &&\
     mkdir -p /data/app &&\
     chown mf-user:mf-user /data/app
