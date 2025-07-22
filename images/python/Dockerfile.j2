@@ -26,7 +26,7 @@ RUN useradd -m -u 11200 mf-user -s /bin/bash &&\
 
 
 RUN --mount=type=secret,id=tok \
-    curl -H "X-JFrog-Art-Api: $(cat /run/secrets/tok)" {{python_registry}}/{{python_full_version}}/Python-{{python_full_version}}.tgz -o Python-${{python_full_version}}.tgz
+    curl -H "X-JFrog-Art-Api: $(cat /run/secrets/tok)" {{python_registry}}/{{python_full_version}}/Python-{{python_full_version}}.tgz -o Python-{{python_full_version}}.tgz
 RUN tar xzf Python-{{python_full_version}}.tgz && \
     cd Python-{{python_full_version}} && \
     ./configure --enable-optimizations --enable-loadable-sqlite-extensions && \
