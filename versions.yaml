@@ -29,12 +29,12 @@ java:
 python:
   - version: 310
     base_image: docker.nexign.com/ubi9/ubi-minimal:latest
-    python_full_version: 3.10
-    python_minor_version: 310
+    python_full_version: 3.10.11
+    python_minor_version: 3.10
   - version: 311
     base_image: docker.nexign.com/ubi9/ubi-minimal:latest
-    python_full_version: 3.11
-    python_minor_version: 311
+    python_full_version: 3.11.10
+    python_minor_version: 3.11
 nginx:
   - version: latest
     base_image: docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/docker-base-alpine:latest
