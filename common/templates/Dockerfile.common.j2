@@ -3,7 +3,7 @@ FROM {{ base_image }} AS runtime
 LABEL NAME={{ name }}
 
 {# Copying general files #}
-{% for copy_item in copy %}
+{% for copy_item in copy -%}
 COPY {{ copy_item.source }} {{ copy_item.dest }}
 {% endfor %}
 
@@ -12,36 +12,40 @@ COPY {{ copy_item.source }} {{ copy_item.dest }}
 
 {# Setup packages #}
 {% block package_installation %}
-    {% if package_manager == 'apk' %}
+    {% if package_manager == 'apk' -%}
         RUN apk add --no-cache {{ packages | join(' ') }}
-    {% elif package_manager == 'microdnf' %}
+    {% elif package_manager == 'microdnf' -%}
         RUN microdnf install -y --nodocs {{ packages | join(' ') }}
-    {% elif package_manager == 'dnf' %}
+    {% elif package_manager == 'dnf' -%}
         RUN dnf install -y --nodocs {{ packages | join(' ') }}
     {% endif %}
 {% endblock %}
 
 {# Post-installation steps #}
 {% block post_install %}
-    {% if package_manager == 'apk' %}
+    {% if package_manager == 'apk' -%}
         RUN update-ca-certificates
+    {% endif -%}
+    {% if run -%}
+        RUN {% for run_cmd in run -%}
+            {% if run_cmd != 'update-ca-certificates' -%}
+                {{ run_cmd }}{% if not loop.last %} && {% endif %}
+            {% endif -%}
+        {% endfor %}
     {% endif %}
-    RUN \ {% for run_cmd in run %}
-        {% if run_cmd != 'update-ca-certificates' %}
-            {{ run_cmd }} {% if not loop.last %}\{% endif %}
-        {% endif %}
-    {% endfor %}
 {% endblock %}
 
 {# User creation #}
-RUN \ {% for user in users %}
-    adduser -u {{ user.uid }} {{ user.name }} -D {% if not loop.last %}\{% endif %}
-{% endfor %}
+{% if users -%}
+    RUN {% for user in users -%}
+        adduser -u {{ user.uid }} {{ user.name }} -D{% if not loop.last %} && {% endif %}
+    {% endfor %}
+{% endif %}
 
 {# ENVs setup #}
-{% for key, value in env.items() %}
+{% for key, value in env.items() -%}
 ENV {{ key }}='{{ value }}'
-{% endfor %}
+{% endfor -%}
 {% block extra_env %}{% endblock %}
 
 WORKDIR {{ workdir }}
