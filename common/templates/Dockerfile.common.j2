@@ -2,7 +2,7 @@ FROM {{ base_image }} AS runtime
 
 LABEL NAME={{ name }}
 
-{# Copying general files - объединяем все COPY в одну команду #}
+{# Copying general files #}
 {% for copy_item in copy %}
 COPY {{ copy_item.source }} {{ copy_item.dest }}
 {% endfor %}
@@ -10,44 +10,38 @@ COPY {{ copy_item.source }} {{ copy_item.dest }}
 {# Prepare alpine repos #}
 {% block alpine_repo_setup %}{% endblock %}
 
-{# Setup packages and post-installation в одном RUN #}
+{# Setup packages #}
 {% block package_installation %}
     {% if package_manager == 'apk' %}
-        RUN apk update && \
-            apk add --no-cache {{ packages | join(' ') }} && \
-            update-ca-certificates
+        RUN apk add --no-cache {{ packages | join(' ') }}
     {% elif package_manager == 'microdnf' %}
-        RUN microdnf update -y && \
-            microdnf install -y --nodocs {{ packages | join(' ') }} && \
-            microdnf clean all
+        RUN microdnf install -y --nodocs {{ packages | join(' ') }}
     {% elif package_manager == 'dnf' %}
-        RUN dnf update -y && \
-            dnf install -y --nodocs {{ packages | join(' ') }} && \
-            dnf clean all
+        RUN dnf install -y --nodocs {{ packages | join(' ') }}
     {% endif %}
 {% endblock %}
 
-{# Post-installation steps - объединяем с основной установкой #}
+{# Post-installation steps #}
 {% block post_install %}
-    {% if run %}
-        RUN {% for run_cmd in run %}{% if run_cmd != 'update-ca-certificates' %}{{ run_cmd }} && \{% endif %}
-        {% endfor %} true
+    {% if package_manager == 'apk' %}
+        RUN update-ca-certificates
     {% endif %}
+    RUN \ {% for run_cmd in run %}
+        {% if run_cmd != 'update-ca-certificates' %}
+            {{ run_cmd }}
+        {% endif %}
+    {% endfor %}
 {% endblock %}
 
-{# User creation - объединяем все создания пользователей #}
-{% if users %}
-    RUN \ {% for user in users %}adduser -u {{ user.uid }} {{ user.name }} -D && {% endfor %} true
-{% endif %}
+{# User creation #}
+RUN \ {% for user in users %}
+    adduser -u {{ user.uid }} {{ user.name }} -D
+{% endfor %}
 
-{# ENVs setup - объединяем все ENV в одну команду #}
-{% if env %}
-ENV {% for key, value in env.items() %}{{ key }}='{{ value }}' \
-    {% endfor %}
-    PATH=/usr/sbin:$PATH
-{% else %}
-ENV PATH=/usr/sbin:$PATH
-{% endif %}
+{# ENVs setup #}
+{% for key, value in env.items() %}
+ENV {{ key }}='{{ value }}'
+{% endfor %}
 {% block extra_env %}{% endblock %}
 
 WORKDIR {{ workdir }}
