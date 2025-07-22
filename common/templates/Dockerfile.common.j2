@@ -37,7 +37,7 @@ COPY {{ copy_item.source }} {{ copy_item.dest }}
 
 {# User creation - объединяем все создания пользователей #}
 {% if users %}
-    RUN {% for user in users %}adduser -u {{ user.uid }} {{ user.name }} -D && {% endfor %} true
+    RUN \ {% for user in users %}adduser -u {{ user.uid }} {{ user.name }} -D && {% endfor %} true
 {% endif %}
 
 {# ENVs setup - объединяем все ENV в одну команду #}
