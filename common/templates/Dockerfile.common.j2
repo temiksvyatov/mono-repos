@@ -3,9 +3,9 @@ FROM {{ base_image }} AS runtime
 LABEL NAME={{ name }}
 
 {# Copying general files - объединяем все COPY в одну команду #}
-{% if copy %}
-COPY {% for copy_item in copy %}{{ copy_item.source }} {{ copy_item.dest }} {% endfor %}
-{% endif %}
+{% for copy_item in copy %}
+COPY {{ copy_item.source }} {{ copy_item.dest }}
+{% endfor %}
 
 {# Prepare alpine repos #}
 {% block alpine_repo_setup %}{% endblock %}
