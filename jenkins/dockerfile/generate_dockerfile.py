@@ -38,7 +38,7 @@ def generate_dockerfile(image_name, version_data, common_config, env):
     dockerfile_content = template.render(**final_config)
     return dockerfile_content
 
-if name == "__main__":
+if __name__ == "__main__":
     image_name = sys.argv[1]
     env = Environment(loader=FileSystemLoader(['.', 'common/templates']))
     with open('versions.yaml', 'r') as f:

@@ -35,7 +35,7 @@ RUN tar xzf Python-{{python_full_version}}.tgz && \
     rm -rf /Python-{{python_full_version}}* && \
     ln -s /usr/local/bin/python{{python_minor_version}} /usr/local/bin/python3 && \
     ln -s /usr/local/bin/pip{{python_minor_version}} /usr/local/bin/pip && \
-    pip install virtualenv && \
+    pip install virtualenv yq && \
     pip install --upgrade setuptools && \
     python3 -m virtualenv ${APP_ROOT} && \
     chown -R 11200:0 ${APP_ROOT}
