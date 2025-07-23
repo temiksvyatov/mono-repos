@@ -1,3 +1,4 @@
 name: docker-java-{{ version }}-maven-alpine
 packages:
   - make
+
