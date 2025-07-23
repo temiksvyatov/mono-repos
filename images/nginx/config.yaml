@@ -7,3 +7,4 @@ copy:
   - source: common/files/default.conf
     dest: /etc/nginx/http.d/default.conf
 users:
+

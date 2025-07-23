@@ -318,7 +318,7 @@ ${successfulImages.collect { "  - ${it}" }.join('\n') ?: 'None'}
 ❌ Failed images:
 ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('\n') ?: 'None'}
 
-📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.html
+📄 Full report: ${env.BUILD_URL}artifact/report.html
 """
                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                     } catch (Exception e) {
@@ -368,7 +368,7 @@ ${successfulImages.collect { "  - ${it}" }.join('\n') ?: 'None'}
 ❌ Failed images:
 ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('\n') ?: 'None'}
 
-📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.html
+📄 Full report: ${env.BUILD_URL}artifact/report.html
 """
                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                     } catch (Exception e) {
@@ -414,7 +414,7 @@ ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('
 ✖ Failed images:
 ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('\n') ?: 'No failure details available'}
 
-📄 Full report: ${env.BUILD_URL}artifact/pipeline_report.html
+📄 Full report: ${env.BUILD_URL}artifact/report.html
 """
                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                     } catch (Exception e) {
