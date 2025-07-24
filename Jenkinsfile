@@ -130,6 +130,9 @@ pipeline {
                             }
                             env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
 
+                            // Print the value of versionsYaml
+                            echo "versionsYaml content: ${versionsYaml}"
+
                             def changedFiles = utils.getChangedFiles()
                             def changedImages = utils.getChangedImages(changedFiles)
                             def imagesToBuild = utils.determineImagesToBuild(versionsYaml, changedImages, params.IMAGES_TO_BUILD)
