@@ -1,7 +1,7 @@
 def getChangedFiles() {
     try {
         def changes = sh(
-            script: 'git diff --name-only HEAD~1 HEAD ||一一 echo ""',
+            script: 'git diff --name-only HEAD~1 HEAD || echo ""',
             returnStdout: true
         ).trim()
         return changes ? changes.split('\n') : []
@@ -17,9 +17,11 @@ def getChangedImages(changedFiles) {
         if (file.startsWith('images/')) {
             def parts = file.split('/')
             if (parts.length >= 2) {
+                // Корневой образ, например, images/alpine/Dockerfile.j2
                 if (parts.length == 3 && (parts[2] == 'Dockerfile.j2' || parts[2] == 'config.yaml')) {
                     changedImages.add(parts[1])
                 }
+                // Подмодуль, например, images/java/maven/Dockerfile.j2
                 else if (parts.length == 4 && (parts[3] == 'Dockerfile.j2' || parts[3] == 'config.yaml')) {
                     changedImages.add("${parts[1]}/${parts[2]}")
                 }
@@ -40,11 +42,15 @@ def determineImagesToBuild(versionsYaml, changedImages, imagesToBuildParam) {
 
     if (imagesToBuildParam == 'all') {
         versionsYaml.each { key, value ->
-            if (value instanceof List) {
+            if (value instanceof Map && value.versions) {
+                // Корневой образ с полем versions, например, alpine, golang
                 imagesToBuild.add(key)
             } else if (value instanceof Map) {
+                // Подмодули, например, java/maven
                 value.each { subKey, subValue ->
-                    imagesToBuild.add("${key}/${subKey}")
+                    if (subValue instanceof Map && subValue.versions) {
+                        imagesToBuild.add("${key}/${subKey}")
+                    }
                 }
             }
         }

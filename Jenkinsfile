@@ -133,8 +133,32 @@ pipeline {
                             def changedFiles = utils.getChangedFiles()
                             def changedImages = utils.getChangedImages(changedFiles)
                             def imagesToBuild = utils.determineImagesToBuild(versionsYaml, changedImages, params.IMAGES_TO_BUILD)
+
+                            // Валидация списка imagesToBuild
+                            def validImages = []
+                            imagesToBuild.each { image ->
+                                def imageParts = image.split('/')
+                                def imageData = versionsYaml
+                                for (part in imageParts) {
+                                    imageData = imageData[part]
+                                    if (!imageData) {
+                                        echo "WARNING: Image ${image} not found in versions.yaml, skipping"
+                                        return
+                                    }
+                                }
+                                if (imageData instanceof Map && imageData.versions) {
+                                    validImages.add(image)
+                                } else {
+                                    echo "WARNING: Image ${image} does not have versions in versions.yaml, skipping"
+                                }
+                            }
+                            imagesToBuild = validImages
                             env.IMAGES_TO_BUILD_LIST = writeJSON returnText: true, json: imagesToBuild
                             echo "Images to build: ${imagesToBuild}"
+
+                            if (imagesToBuild.isEmpty()) {
+                                error("No valid images to build. Aborting pipeline.")
+                            }
 
                             validation.validateImageDirectories(imagesToBuild)
                             validation.validateFileIntegrity(versionsYaml, imagesToBuild)
