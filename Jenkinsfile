@@ -62,6 +62,7 @@ pipeline {
         stage('Load Scripts') {
             steps {
                 script {
+                    def startTime = System.currentTimeMillis()
                     echo '=== Loading Scripts in Parallel ==='
                     def scriptLoads = [
                         'utils': { utils = load 'jenkins/utils/Utils.groovy' },
@@ -74,7 +75,25 @@ pipeline {
                     ]
                     parallel scriptLoads
                     env.SCRIPTS_LOADED = 'true'
+                    PIPELINE_REPORT.loadScripts = [
+                        status: 'SUCCESS',
+                        duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                        message: 'Scripts loaded successfully'
+                    ]
+                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
                     echo '=== Scripts Loaded Successfully ==='
+                }
+            }
+            post {
+                failure {
+                    script {
+                        PIPELINE_REPORT.loadScripts = [
+                            status: 'FAILED',
+                            duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                            message: 'Failed to load scripts'
+                        ]
+                        env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                    }
                 }
             }
         }
@@ -85,8 +104,8 @@ pipeline {
             }
             steps {
                 script {
+                    def startTime = System.currentTimeMillis()
                     echo '=== Starting Initial Validation ==='
-
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
                         builderImage.inside() {
@@ -95,41 +114,54 @@ pipeline {
                                 'common/templates/Dockerfile.common.j2',
                                 'common/config.yaml'
                             ]
-                    requiredFiles.each { file ->
-                        if (!fileExists(file)) {
-                            error("Required file missing: ${file}")
-                        }
-                        echo "✓ File found: ${file}"
-                    }
+                            requiredFiles.each { file ->
+                                if (!fileExists(file)) {
+                                    error("Required file missing: ${file}")
+                                }
+                                echo "✓ File found: ${file}"
+                            }
                             def versionsYaml
                             try {
-                        versionsYaml = readYaml file: 'versions.yaml'
-                    } catch (Exception e) {
-                        echo 'WARNING: readYaml not available, falling back to yq for versions.yaml'
-                        versionsYaml = sh(script: 'yq eval -o=json versions.yaml', returnStdout: true).trim()
-                        versionsYaml = readJSON text: versionsYaml
+                                versionsYaml = readYaml file: 'versions.yaml'
+                            } catch (Exception e) {
+                                echo 'WARNING: readYaml not available, falling back to yq for versions.yaml'
+                                versionsYaml = sh(script: 'yq eval -o=json versions.yaml', returnStdout: true).trim()
+                                versionsYaml = readJSON text: versionsYaml
+                            }
+                            env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
+
+                            def changedFiles = utils.getChangedFiles()
+                            def changedImages = utils.getChangedImages(changedFiles)
+                            def imagesToBuild = utils.determineImagesToBuild(versionsYaml, changedImages, params.IMAGES_TO_BUILD)
+                            env.IMAGES_TO_BUILD_LIST = writeJSON returnText: true, json: imagesToBuild
+                            echo "Images to build: ${imagesToBuild}"
+
+                            validation.validateImageDirectories(imagesToBuild)
+                            validation.validateFileIntegrity(versionsYaml, imagesToBuild)
+
+                            PIPELINE_REPORT.validation = [
+                                status: 'SUCCESS',
+                                duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                                message: 'Initial validation completed successfully',
+                                imagesCount: imagesToBuild.size()
+                            ]
+                            env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                            echo '=== Initial Validation Completed Successfully ==='
+                        }
                     }
-                    env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
-
-                    def changedFiles = utils.getChangedFiles()
-                    def changedImages = utils.getChangedImages(changedFiles)
-                    def imagesToBuild = utils.determineImagesToBuild(versionsYaml, changedImages, params.IMAGES_TO_BUILD)
-                    env.IMAGES_TO_BUILD_LIST = writeJSON returnText: true, json: imagesToBuild
-                    echo "Images to build: ${imagesToBuild}"
-
-                    validation.validateImageDirectories(imagesToBuild)
-                    validation.validateFileIntegrity(versionsYaml, imagesToBuild)
-
-                    PIPELINE_REPORT.validation = [
-                        status: 'SUCCESS',
-                        message: 'Initial validation completed successfully',
-                        imagesCount: imagesToBuild.size()
-                    ]
-                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-                    echo '=== Initial Validation Completed Successfully ==='
                 }
             }
-        }
+            post {
+                failure {
+                    script {
+                        PIPELINE_REPORT.validation = [
+                            status: 'FAILED',
+                            duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                            message: 'Initial validation failed'
+                        ]
+                        env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                    }
+                }
             }
         }
 
@@ -139,6 +171,7 @@ pipeline {
             }
             steps {
                 script {
+                    def startTime = System.currentTimeMillis()
                     echo '=== Setting Up Environment ==='
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         try {
@@ -147,17 +180,24 @@ pipeline {
                                 builderImage.pull()
                                 echo "✓ Builder image found and pulled: ${params.BUILDER_IMAGE}"
                             }
+                            PIPELINE_REPORT.environment = [
+                                status: 'SUCCESS',
+                                duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                                message: 'Environment setup completed successfully',
+                                builderImage: params.BUILDER_IMAGE
+                            ]
+                            env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                            echo '=== Environment Setup Completed ==='
                         } catch (Exception e) {
+                            PIPELINE_REPORT.environment = [
+                                status: 'FAILED',
+                                duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                                message: "Failed to set up environment: ${e.message}"
+                            ]
+                            env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
                             error("Failed to find or pull builder image: ${params.BUILDER_IMAGE}. Error: ${e.message}")
                         }
                     }
-                    PIPELINE_REPORT.environment = [
-                        status: 'SUCCESS',
-                        message: 'Environment setup completed successfully',
-                        builderImage: params.BUILDER_IMAGE
-                    ]
-                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-                    echo '=== Environment Setup Completed ==='
                 }
             }
         }
@@ -168,6 +208,7 @@ pipeline {
             }
             steps {
                 script {
+                    def startTime = System.currentTimeMillis()
                     echo '=== Generating Dockerfiles ==='
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
@@ -185,7 +226,14 @@ pipeline {
                             if (generationResult.successful.size() == 0) {
                                 error('No Dockerfiles were generated successfully. Aborting pipeline.')
                             }
-                            PIPELINE_REPORT.generation = generationResult
+                            PIPELINE_REPORT.generation = [
+                                status: generationResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
+                                duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                                successful: generationResult.successful,
+                                failed: generationResult.failed,
+                                logs: generationResult.logs,
+                                durations: generationResult.durations
+                            ]
                             env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
                             if (generationResult.failed.size() > 0) {
                                 unstable("WARNING: Failed to generate Dockerfiles for: ${generationResult.failed}")
@@ -204,6 +252,7 @@ pipeline {
             }
             steps {
                 script {
+                    def startTime = System.currentTimeMillis()
                     echo '=== Building Images ==='
                     def versionsData = readJSON text: env.VERSIONS_DATA
                     def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
@@ -212,7 +261,15 @@ pipeline {
                         generationResult.successful.contains(it)
                     }
                     def buildResult = imageBuilder.buildImages(versionsData, imagesToBuildFiltered, params)
-                    PIPELINE_REPORT.build = buildResult
+                    PIPELINE_REPORT.build = [
+                        status: buildResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
+                        duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                        successful: buildResult.successful,
+                        failed: buildResult.failed,
+                        logs: buildResult.logs,
+                        imageDurations: buildResult.imageDurations
+                    ]
+                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
                     if (buildResult.successful.size() == 0) {
                         error('No images were built successfully. Aborting pipeline.')
                     }
@@ -231,10 +288,18 @@ pipeline {
             }
             steps {
                 script {
+                    def startTime = System.currentTimeMillis()
                     echo '=== Running Smoke Tests ==='
                     def buildResult = PIPELINE_REPORT.build
                     def testResult = smokeTests.runSmokeTests(buildResult.successful)
-                    PIPELINE_REPORT.smokeTests = testResult
+                    PIPELINE_REPORT.smokeTests = [
+                        status: testResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
+                        duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                        successful: testResult.successful,
+                        failed: testResult.failed,
+                        logs: testResult.logs,
+                        testDurations: testResult.testDurations
+                    ]
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
                     if (testResult.failed.size() > 0) {
                         unstable("WARNING: Smoke tests failed for: ${testResult.failed}")
@@ -251,10 +316,18 @@ pipeline {
             }
             steps {
                 script {
+                    def startTime = System.currentTimeMillis()
                     echo '=== Pushing Images to Registry ==='
                     def testResult = PIPELINE_REPORT.smokeTests
                     def pushResult = imagePusher.pushImages(testResult.successful, params)
-                    PIPELINE_REPORT.push = pushResult
+                    PIPELINE_REPORT.push = [
+                        status: pushResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
+                        duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                        successful: pushResult.successful,
+                        failed: pushResult.failed,
+                        logs: pushResult.logs,
+                        pushDurations: pushResult.pushDurations
+                    ]
                     env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
                     if (pushResult.failed.size() > 0) {
                         unstable("WARNING: Failed to push images: ${pushResult.failed}")
@@ -264,18 +337,25 @@ pipeline {
                 }
             }
         }
+
+        stage('Generate Report') {
+            when {
+                expression { params.GENERATE_AND_SEND_REPORT }
+            }
+            steps {
+                script {
+                    echo '=== Generating Final Report ==='
+                    reportGenerator.generateFinalReport(PIPELINE_REPORT)
+                    echo '=== Final Report Generated ==='
+                }
+            }
+        }
     }
 
     post {
         always {
             script {
-                if (params.GENERATE_AND_SEND_REPORT) {
-                    echo '=== Generating Final Report ==='
-                    reportGenerator.generateFinalReport(PIPELINE_REPORT)
-                    sh 'rm -rf generated/ || true'
-                } else {
-                    echo '⚠️ Report generation is disabled by parameter'
-                }
+                sh 'rm -rf generated/ || true'
                 deleteDir()
             }
         }
@@ -312,7 +392,7 @@ pipeline {
                         }
 
                         def message = """✅ Pipeline Succeeded!
-✔ Successfully built and pushed images:
+✔️ Successfully built and pushed images:
 ${successfulImages.collect { "  - ${it}" }.join('\n') ?: 'None'}
 
 ❌ Failed images:
@@ -362,7 +442,7 @@ ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('
                         }
 
                         def message = """⚠️ Pipeline Unstable!
-✔ Successfully built and pushed images:
+✔️ Successfully built and pushed images:
 ${successfulImages.collect { "  - ${it}" }.join('\n') ?: 'None'}
 
 ❌ Failed images:
@@ -411,7 +491,7 @@ ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('
                         }
 
                         def message = """❌ Pipeline Failed!
-✖ Failed images:
+✖️ Failed images:
 ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('\n') ?: 'No failure details available'}
 
 📄 Full report: ${env.BUILD_URL}artifact/report.html
@@ -427,4 +507,3 @@ ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('
         }
     }
 }
-

@@ -1,27 +1,38 @@
 def runSmokeTests(builtImages) {
     def successful = []
     def failed = []
+    def logs = [:]
+    def testDurations = [:]
 
     builtImages.each { image ->
+        def startTime = System.currentTimeMillis()
+        def log = ""
         try {
             echo "Running smoke test for ${image}"
             def testResult = runSmokeTestForImage(image)
-            if (testResult) {
+            log = testResult.log
+            if (testResult.status == 0) {
                 successful.add(image)
                 echo "✓ Smoke test passed for ${image}"
             } else {
                 failed.add(image)
                 echo "✗ Smoke test failed for ${image}"
+                log += "\nError: Non-zero exit code from smoke test"
             }
         } catch (Exception e) {
             failed.add(image)
             echo "✗ Exception while running smoke test for ${image}: ${e.message}"
+            log += "\nException: ${e.message}"
         }
+        logs[image] = log
+        testDurations[image] = "${(System.currentTimeMillis() - startTime) / 1000}s"
     }
 
     return [
         successful: successful,
-        failed: failed
+        failed: failed,
+        logs: logs,
+        testDurations: testDurations
     ]
 }
 
@@ -60,9 +71,10 @@ result = subprocess.run(['pip', 'list'], capture_output=True, text=True)
 print(f'Installed packages: {len(result.stdout.splitlines())} packages')
 "
         """,
-        returnStatus: true
+        returnStatus: true,
+        returnStdout: true
     )
-    return result == 0
+    return [status: result.status, log: result.stdout]
 }
 
 def testNodeImage(image) {
@@ -76,9 +88,10 @@ def testNodeImage(image) {
                 echo 'Node.js smoke test passed'
             "
         """,
-        returnStatus: true
+        returnStatus: true,
+        returnStdout: true
     )
-    return result == 0
+    return [status: result.status, log: result.stdout]
 }
 
 def testJavaImage(image) {
@@ -92,9 +105,10 @@ def testJavaImage(image) {
                 echo 'Java smoke test passed'
             "
         """,
-        returnStatus: true
+        returnStatus: true,
+        returnStdout: true
     )
-    return result == 0
+    return [status: result.status, log: result.stdout]
 }
 
 def testAlpineImage(image) {
@@ -108,9 +122,10 @@ def testAlpineImage(image) {
                 echo 'Alpine smoke test passed'
             "
         """,
-        returnStatus: true
+        returnStatus: true,
+        returnStdout: true
     )
-    return result == 0
+    return [status: result.status, log: result.stdout]
 }
 
 def testNginxImage(image) {
@@ -123,9 +138,10 @@ def testNginxImage(image) {
                 echo 'Nginx smoke test passed'
             "
         """,
-        returnStatus: true
+        returnStatus: true,
+        returnStdout: true
     )
-    return result == 0
+    return [status: result.status, log: result.stdout]
 }
 
 def testGenericImage(image) {
@@ -137,9 +153,10 @@ def testGenericImage(image) {
                 echo 'Generic smoke test passed'
             "
         """,
-        returnStatus: true
+        returnStatus: true,
+        returnStdout: true
     )
-    return result == 0
+    return [status: result.status, log: result.stdout]
 }
 
 return this

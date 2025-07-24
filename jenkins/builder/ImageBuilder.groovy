@@ -1,6 +1,8 @@
 def buildImages(versionsData, imagesToBuild, params) {
     def successful = []
     def failed = []
+    def logs = [:]
+    def imageDurations = [:]
     def imagesByPriority = [:]
 
     imagesToBuild.each { image ->
@@ -33,13 +35,17 @@ def buildImages(versionsData, imagesToBuild, params) {
                     group.each { item ->
                         def imageKey = "${item.image}:${item.version.version}"
                         parallelBuilds[imageKey] = {
-                            buildSingleImage(item.image, item.version, successful, failed, item.imageData)
+                            def result = buildSingleImage(item.image, item.version, successful, failed, item.imageData)
+                            logs[result.image] = result.log
+                            imageDurations[result.image] = result.duration
                         }
                     }
                     parallel parallelBuilds
                 } else {
                     group.each { item ->
-                        buildSingleImage(item.image, item.version, successful, failed, item.imageData)
+                        def result = buildSingleImage(item.image, item.version, successful, failed, item.imageData)
+                        logs[result.image] = result.log
+                        imageDurations[result.image] = result.duration
                     }
                 }
             }
@@ -47,16 +53,17 @@ def buildImages(versionsData, imagesToBuild, params) {
     }
     return [
         successful: successful,
-        failed: failed
+        failed: failed,
+        logs: logs,
+        imageDurations: imageDurations
     ]
 }
 
 def getImageTag(imageName, versionData, imageData) {
     def format = imageData.image_tag_format
     if (!format) {
-        // Резервный шаблон для обратной совместимости
-        def registry = 'docker-mf-middle-dev-local.nexign.com'
-        def basePath = 'microservices/infra'
+        def registry = "docker-mf-middle-dev-local.nexign.com"
+        def basePath = "microservices/infra"
         def version = versionData.version
         switch (imageName) {
             case 'alpine':
@@ -83,30 +90,36 @@ def getImageTag(imageName, versionData, imageData) {
 }
 
 def buildSingleImage(imageName, versionData, successful, failed, imageData) {
+    def startTime = System.currentTimeMillis()
+    def imageTag = getImageTag(imageName, versionData, imageData)
+    def log = ""
     try {
-        def imageTag = getImageTag(imageName, versionData, imageData)
         def dockerfilePath = "generated/${imageName}/${versionData.version}/Dockerfile"
         echo "Checking Dockerfile existence at: ${dockerfilePath}"
         if (!fileExists(dockerfilePath)) {
             error("Dockerfile not found at: ${dockerfilePath}")
         }
         echo "Building image: ${imageTag}"
-        def buildResult = sh(script: "docker build --no-cache --pull --progress=plain -t ${imageTag} -f ${dockerfilePath} .",
-            returnStatus: true
+        def buildResult = sh(
+            script: "docker build --no-cache --pull --progress=plain -t ${imageTag} -f ${dockerfilePath} .",
+            returnStatus: true,
+            returnStdout: true
         )
+        log = buildResult
         if (buildResult == 0) {
             successful.add(imageTag)
             echo "✓ Successfully built image: ${imageTag}"
         } else {
             failed.add(imageTag)
             echo "✗ Error building image: ${imageTag}"
-            sh "docker build --no-cache --pull --progress=plain -t ${imageTag} -f ${dockerfilePath} . || true"
         }
     } catch (Exception e) {
-        def imageTag = getImageTag(imageName, versionData, imageData)
         failed.add(imageTag)
         echo "✗ Exception while building image ${imageTag}: ${e.message}"
+        log += "\nException: ${e.message}"
     }
+    def duration = "${(System.currentTimeMillis() - startTime) / 1000}s"
+    return [image: imageTag, log: log, duration: duration]
 }
 
 return this

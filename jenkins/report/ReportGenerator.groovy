@@ -124,7 +124,7 @@ def generateFinalReport(pipelineReport) {
                     <td>${pipelineReport.build?.imageDurations?."${image}" ?: 'N/A'}</td>
                     <td><a class="toggle-log" onclick="toggleLog('log-${image.replaceAll('[^a-zA-Z0-9]', '-')}')">Show Log</a>
                         <div id="log-${image.replaceAll('[^a-zA-Z0-9]', '-')}" class="log-content">
-                            ${pipelineReport.build?.logs?."${image}" ?: 'No logs available'}
+                            ${pipelineReport.build?.logs?."${image}"?.replaceAll('\n', '<br>') ?: 'No logs available'}
                         </div>
                     </td>
                 </tr>
@@ -139,7 +139,7 @@ def generateFinalReport(pipelineReport) {
                     <td>${pipelineReport.build?.imageDurations?."${image}" ?: 'N/A'}</td>
                     <td><a class="toggle-log" onclick="toggleLog('log-${image.replaceAll('[^a-zA-Z0-9]', '-')}')">Show Log</a>
                         <div id="log-${image.replaceAll('[^a-zA-Z0-9]', '-')}" class="log-content">
-                            ${pipelineReport.build?.logs?."${image}" ?: 'No logs available'}
+                            ${pipelineReport.build?.logs?."${image}"?.replaceAll('\n', '<br>') ?: 'No logs available'}
                         </div>
                     </td>
                 </tr>
