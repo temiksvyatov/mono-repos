@@ -15,7 +15,7 @@ def generateFinalReport(pipelineReport) {
     def successfulBuilds = pipelineReport.build?.successful ?: []
     def failedBuilds = pipelineReport.build?.failed ?: []
     def totalBuilds = successfulBuilds.size() + failedBuilds.size()
-    def successRate = totalBuilds > 0 ? (successfulBuilds.size() / totalBuilds * 100).round(2) : 0
+    def successRate = totalBuilds > 0 ? (successfulBuilds.size() / totalBuilds * 100).setScale(2, BigDecimal.ROUND_HALF_UP) : 0
 
     // Функция для безопасной обработки логов
     def safeLog = { log ->
