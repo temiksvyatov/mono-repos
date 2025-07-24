@@ -156,8 +156,8 @@ pipeline {
                                 }
                                 if (imageData instanceof Map && imageData.versions) {
                                     if (version) {
-                                        // Проверяем, есть ли указанная версия в списке versions
-                                        def versionExists = imageData.versions.any { it.version.toString() == version }
+                                        // Приводим версию к строке для сравнения
+                                        def versionExists = imageData.versions.any { it.version.toString() == version.toString() }
                                         if (!versionExists) {
                                             echo "WARNING: Version ${version} for image ${imageName} not found in versions.yaml, skipping"
                                             return
