@@ -1,3 +1,4 @@
+import java.math.BigDecimal
 def generateFinalReport(pipelineReport) {
     // Собираем данные для отчета
     def validationStatus = pipelineReport.validation?.status ?: 'UNKNOWN'
