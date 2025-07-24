@@ -1,24 +1,33 @@
-import java.math.BigDecimal
-
 def generateFinalReport(pipelineReport) {
     // Собираем данные для отчета
     def validationStatus = pipelineReport.validation?.status ?: 'UNKNOWN'
     def validationDuration = pipelineReport.validation?.duration ?: 'N/A'
-    def dockerfileGenStatus = pipelineReport.dockerfileGeneration?.status ?: 'UNKNOWN'
-    def dockerfileGenDuration = pipelineReport.dockerfileGeneration?.duration ?: 'N/A'
+    def dockerfileGenStatus = pipelineReport.generation?.status ?: 'UNKNOWN'
+    def dockerfileGenDuration = pipelineReport.generation?.duration ?: 'N/A'
     def buildStatus = pipelineReport.build?.status ?: 'UNKNOWN'
     def buildDuration = pipelineReport.build?.duration ?: 'N/A'
-    def testStatus = pipelineReport.test?.status ?: 'UNKNOWN'
-    def testDuration = pipelineReport.test?.duration ?: 'N/A'
+    def testStatus = pipelineReport.smokeTests?.status ?: 'UNKNOWN'
+    def testDuration = pipelineReport.smokeTests?.duration ?: 'N/A'
     def pushStatus = pipelineReport.push?.status ?: 'UNKNOWN'
     def pushDuration = pipelineReport.push?.duration ?: 'N/A'
 
     def successfulBuilds = pipelineReport.build?.successful ?: []
     def failedBuilds = pipelineReport.build?.failed ?: []
     def totalBuilds = successfulBuilds.size() + failedBuilds.size()
-    def successRate = totalBuilds > 0 ? (successfulBuilds.size() / totalBuilds * 100).setScale(2, BigDecimal.ROUND_HALF_UP) : 0
+    def successRate = totalBuilds > 0 ? (successfulBuilds.size() / totalBuilds * 100).round(2) : 0
 
-    // HTML-отчет с улучшенным дизайном
+    // Функция для безопасной обработки логов
+    def safeLog = { log ->
+        if (log == null) {
+            return 'No logs available'
+        } else if (log instanceof String) {
+            return log.replaceAll('\n', '<br>')
+        } else {
+            return log.toString().replaceAll('\n', '<br>')
+        }
+    }
+
+    // HTML-отчет
     def htmlContent = """
     <!DOCTYPE html>
     <html lang="en">
@@ -107,7 +116,7 @@ def generateFinalReport(pipelineReport) {
                 <tr><td>Validation</td><td class="${validationStatus == 'SUCCESS' ? 'success' : 'failure'}">${validationStatus}</td><td>${validationDuration}</td></tr>
                 <tr><td>Dockerfile Generation</td><td class="${dockerfileGenStatus == 'SUCCESS' ? 'success' : 'failure'}">${dockerfileGenStatus}</td><td>${dockerfileGenDuration}</td></tr>
                 <tr><td>Build</td><td class="${buildStatus == 'SUCCESS' ? 'success' : 'failure'}">${buildStatus}</td><td>${buildDuration}</td></tr>
-                <tr><td>Test</td><td class="${testStatus == 'SUCCESS' ? 'success' : 'failure'}">${testStatus}</td><td>${testDuration}</td></tr>
+                <tr><td>Smoke Tests</td><td class="${testStatus == 'SUCCESS' ? 'success' : 'failure'}">${testStatus}</td><td>${testDuration}</td></tr>
                 <tr><td>Push</td><td class="${pushStatus == 'SUCCESS' ? 'success' : 'failure'}">${pushStatus}</td><td>${pushDuration}</td></tr>
             </table>
         </div>
@@ -124,7 +133,7 @@ def generateFinalReport(pipelineReport) {
                     <td>${pipelineReport.build?.imageDurations?."${image}" ?: 'N/A'}</td>
                     <td><a class="toggle-log" onclick="toggleLog('log-${image.replaceAll('[^a-zA-Z0-9]', '-')}')">Show Log</a>
                         <div id="log-${image.replaceAll('[^a-zA-Z0-9]', '-')}" class="log-content">
-                            ${pipelineReport.build?.logs?."${image}"?.replaceAll('\n', '<br>') ?: 'No logs available'}
+                            ${pipelineReport.build?.logs?."${image}" instanceof String ? pipelineReport.build.logs[image].replaceAll('\n', '<br>') : pipelineReport.build?.logs?."${image}"?.toString() ?: 'No logs available'}
                         </div>
                     </td>
                 </tr>
@@ -139,7 +148,7 @@ def generateFinalReport(pipelineReport) {
                     <td>${pipelineReport.build?.imageDurations?."${image}" ?: 'N/A'}</td>
                     <td><a class="toggle-log" onclick="toggleLog('log-${image.replaceAll('[^a-zA-Z0-9]', '-')}')">Show Log</a>
                         <div id="log-${image.replaceAll('[^a-zA-Z0-9]', '-')}" class="log-content">
-                            ${pipelineReport.build?.logs?."${image}"?.replaceAll('\n', '<br>') ?: 'No logs available'}
+                            ${pipelineReport.build?.logs?."${image}" instanceof String ? pipelineReport.build.logs[image].replaceAll('\n', '<br>') : pipelineReport.build?.logs?."${image}"?.toString() ?: 'No logs available'}
                         </div>
                     </td>
                 </tr>

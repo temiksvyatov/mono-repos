@@ -74,7 +74,7 @@ print(f'Installed packages: {len(result.stdout.splitlines())} packages')
         returnStatus: true,
         returnStdout: true
     )
-    return [status: result.status, log: result.stdout]
+    return [status: result, log: result.toString()]
 }
 
 def testNodeImage(image) {
@@ -91,7 +91,7 @@ def testNodeImage(image) {
         returnStatus: true,
         returnStdout: true
     )
-    return [status: result.status, log: result.stdout]
+    return [status: result, log: result.toString()]
 }
 
 def testJavaImage(image) {
@@ -108,7 +108,7 @@ def testJavaImage(image) {
         returnStatus: true,
         returnStdout: true
     )
-    return [status: result.status, log: result.stdout]
+    return [status: result, log: result.toString()]
 }
 
 def testAlpineImage(image) {
@@ -125,7 +125,7 @@ def testAlpineImage(image) {
         returnStatus: true,
         returnStdout: true
     )
-    return [status: result.status, log: result.stdout]
+    return [status: result, log: result.toString()]
 }
 
 def testNginxImage(image) {
@@ -141,7 +141,7 @@ def testNginxImage(image) {
         returnStatus: true,
         returnStdout: true
     )
-    return [status: result.status, log: result.stdout]
+    return [status: result, log: result.toString()]
 }
 
 def testGenericImage(image) {
@@ -156,7 +156,7 @@ def testGenericImage(image) {
         returnStatus: true,
         returnStdout: true
     )
-    return [status: result.status, log: result.stdout]
+    return [status: result, log: result.toString()]
 }
 
 return this
