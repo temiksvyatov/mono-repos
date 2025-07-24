@@ -139,14 +139,30 @@ pipeline {
                             imagesToBuild.each { image ->
                                 def imageParts = image.split('/')
                                 def imageData = versionsYaml
-                                for (part in imageParts) {
-                                    imageData = imageData[part]
-                                    if (!imageData) {
-                                        echo "WARNING: Image ${image} not found in versions.yaml, skipping"
-                                        return
-                                    }
+                                def imageName = image
+                                def version = null
+                                if (imageParts.size() == 2) {
+                                    // Для образов вида python/311
+                                    imageName = imageParts[0]
+                                    version = imageParts[1]
+                                    imageData = versionsYaml[imageName]
+                                } else {
+                                    // Для корневых образов вида alpine
+                                    imageData = versionsYaml[imageName]
+                                }
+                                if (!imageData) {
+                                    echo "WARNING: Image ${image} not found in versions.yaml, skipping"
+                                    return
                                 }
                                 if (imageData instanceof Map && imageData.versions) {
+                                    if (version) {
+                                        // Проверяем, есть ли указанная версия в списке versions
+                                        def versionExists = imageData.versions.any { it.version.toString() == version }
+                                        if (!versionExists) {
+                                            echo "WARNING: Version ${version} for image ${imageName} not found in versions.yaml, skipping"
+                                            return
+                                        }
+                                    }
                                     validImages.add(image)
                                 } else {
                                     echo "WARNING: Image ${image} does not have versions in versions.yaml, skipping"
@@ -184,43 +200,6 @@ pipeline {
                             message: 'Initial validation failed'
                         ]
                         env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-                    }
-                }
-            }
-        }
-
-        stage('Environment Setup') {
-            options {
-                timeout(time: 10, unit: 'MINUTES')
-            }
-            steps {
-                script {
-                    def startTime = System.currentTimeMillis()
-                    echo '=== Setting Up Environment ==='
-                    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-                        try {
-                            retry(3) {
-                                def builderImage = docker.image(params.BUILDER_IMAGE)
-                                builderImage.pull()
-                                echo "✓ Builder image found and pulled: ${params.BUILDER_IMAGE}"
-                            }
-                            PIPELINE_REPORT.environment = [
-                                status: 'SUCCESS',
-                                duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
-                                message: 'Environment setup completed successfully',
-                                builderImage: params.BUILDER_IMAGE
-                            ]
-                            env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-                            echo '=== Environment Setup Completed ==='
-                        } catch (Exception e) {
-                            PIPELINE_REPORT.environment = [
-                                status: 'FAILED',
-                                duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
-                                message: "Failed to set up environment: ${e.message}"
-                            ]
-                            env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
-                            error("Failed to find or pull builder image: ${params.BUILDER_IMAGE}. Error: ${e.message}")
-                        }
                     }
                 }
             }
