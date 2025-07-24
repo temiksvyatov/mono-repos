@@ -15,8 +15,8 @@ RUN update-ca-certificates && \
     chmod 777 /data/cache /app && \
     ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime && \
     ln -s /lib/libc.musl-x86_64.so.1 /lib/ld-linux-x86-64.so.2 && \
-    {% for cert in java_certs %} \
-    keytool -import -alias {{ cert.alias }} -keystore /opt/java/openjdk/lib/security/cacerts -file /usr/local/share/ca-certificates/{{ cert.file }} -noprompt -storepass changeit {% if not loop.last %} && {% endif %} \
+    {% for cert in java_certs %}
+    keytool -import -alias {{ cert.alias }} -keystore /opt/java/openjdk/lib/security/cacerts -file /usr/local/share/ca-certificates/{{ cert.file }} -noprompt -storepass changeit {% if not loop.last %}; \ {% endif %}
     {% endfor %}
 {% endblock %}
 
