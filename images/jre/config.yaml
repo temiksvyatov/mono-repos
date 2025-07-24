@@ -1,7 +1,10 @@
 name: docker-java-{{ version }}-jre-alpine
 packages:
-  - binutils
   - git
+  - ca-certificates
+  - curl
+  - bash
+  - openssh
 java_certs:
   - alias: megaACME1
     file: megafon-acme-01.crt
