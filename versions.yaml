@@ -36,15 +36,15 @@ java:
         base_image: docker.nexign.com/gradle:8.11.1-jdk17-alpine
       - version: 21
         base_image: docker.nexign.com/gradle:8.11.1-jdk21-alpine
-  jre:
-    format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/java/docker-java{version}jre-alpine:latest"
-    versions:
-      - version: 11
-        base_image: docker.nexign.com/eclipse-temurin:11-jre-alpine
-      - version: 17
-        base_image: docker.nexign.com/eclipse-temurin:17-jre-alpine
-      - version: 21
-        base_image: docker.nexign.com/eclipse-temurin:21-jre-alpine
+jre:
+  format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/java/docker-java{version}jre-alpine:latest"
+  versions:
+    - version: 11
+      base_image: docker.nexign.com/eclipse-temurin:11-jre-alpine
+    - version: 17
+      base_image: docker.nexign.com/eclipse-temurin:17-jre-alpine
+    - version: 21
+      base_image: docker.nexign.com/eclipse-temurin:21-jre-alpine
 python:
   format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/python/docker-python{version}-ubi:latest"
   versions:
