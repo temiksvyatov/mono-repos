@@ -1,0 +1,6 @@
+name: docker-java-{{ version }}-gradle-alpine
+packages:
+  - bash
+  - make
+  - curl
+  - jq
