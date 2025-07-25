@@ -40,3 +40,5 @@ RUN tar xzf Python-{{python_full_version}}.tgz && \
     python3 -m virtualenv ${APP_ROOT} && \
     chown -R 11200:0 ${APP_ROOT}
 {% endblock %}
+{% block post_install %}
+{% endblock %}
