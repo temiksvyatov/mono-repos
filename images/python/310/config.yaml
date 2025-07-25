@@ -1,0 +1,40 @@
+name: docker-python-{{ version }}-ubi
+package_manager: dnf
+copy:
+  - source: common/files/pip.conf
+    dest: /etc/pip.conf
+  - source: common/files/timezones/Moscow
+    dest: /usr/share/zoneinfo/Europe/Moscow
+  - source: common/files/certs/*
+    dest: /etc/pki/ca-trust/source/anchors/
+packages:
+  - make
+  - gcc
+  - automake
+  - tar
+  - git
+  - gcc-c++
+  - libcurl-devel
+  - libpq-devel
+  - libxml2-devel
+  - libxslt-devel
+  - bzip2-devel
+  - libffi-devel
+  - zlib-devel
+  - findutils
+  - patch
+  - httpd-devel
+  - mod_ssl
+  - mod_auth_gssapi
+  - mod_ldap
+  - mod_session
+  - atlas-devel
+  - gcc-gfortran
+  - libtool-ltdl
+  - sqlite-devel
+  - kernel-ml
+  - kernel-ml-core
+  - kernel-ml-modules
+  - kernel-ml-modules-extra
+users:
+
