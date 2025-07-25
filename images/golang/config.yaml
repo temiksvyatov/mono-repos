@@ -1,5 +1,8 @@
 name: docker-golang-alpine
 packages:
+  - ca-certificates
+  - bash
+  - curl
   - git
   - make
   - build-base
