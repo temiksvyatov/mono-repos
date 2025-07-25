@@ -1,4 +1,6 @@
 name: docker-java-{{ version }}-maven-alpine
 packages:
+  - ca-certificates
+  - bash
   - make
 
