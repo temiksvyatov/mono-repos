@@ -10,3 +10,8 @@ RUN ALPINE_VERSION_MINOR=$(cat /etc/alpine-release) && \
 {% block extra_env %}
 ENV PATH=/opt/gradle/bin:$PATH
 {% endblock %}
+{% block post_install %}
+{{ super() }}
+RUN apk upgrade libssl3 libcrypto3 && \
+    ln -s /lib/libc.musl-x86_64.so.1 /lib/ld-linux-x86-64.so.2
+{% endblock %}
