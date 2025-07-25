@@ -1,5 +1,5 @@
 name: docker-python-{{ version }}-ubi
-package_manager: dnf
+package_manager: dnmicrodnff
 copy:
   - source: common/files/pip.conf
     dest: /etc/pip.conf
