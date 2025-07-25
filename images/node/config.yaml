@@ -7,3 +7,4 @@ packages:
   - wget
   - tar
   - rsync
+  - ca-certificates
