@@ -1,36 +1,20 @@
 def validateImageDirectories(imagesToBuild) {
     imagesToBuild.each { image ->
-        def hasValidConfig = false
+        def imageDir = "images/${image.replace('/', File.separator)}"
+        if (!fileExists(imageDir)) {
+            error("Image directory missing: ${imageDir}")
+        }
 
-        // Проверяем version-specific config
-        def versions = getVersionsForImage(image)
-        versions.each { version ->
-            def versionConfig = "images/${image}/${version}/config.yaml"
-            if (fileExists(versionConfig)) {
-                validateConfig(readYaml(file: versionConfig))
-                hasValidConfig = true
+        def requiredFiles = ['Dockerfile.j2', 'config.yaml']
+        requiredFiles.each { file ->
+            def filePath = "${imageDir}/${file}"
+            if (!fileExists(filePath)) {
+                error("File missing: ${filePath}")
             }
         }
 
-        // Проверяем общий config
-        if (!hasValidConfig && fileExists("images/${image}/config.yaml")) {
-            validateConfig(readYaml(file: "images/${image}/config.yaml"))
-        }
+        echo "✓ Validated image directory: ${imageDir}"
     }
-}
-
-private def validateConfig(config) {
-    if (config.name_template && !config.name_template.contains('{{version}}')) {
-        error('name_template must contain {{version}} placeholder')
-    }
-}
-
-private def getVersionsForImage(image) {
-    def versionsData = readJSON text: env.VERSIONS_DATA
-    def parts = image.split('/')
-    def node = versionsData
-    parts.each { part -> node = node[part] }
-    return node.collect { it.version }
 }
 
 def validateFileIntegrity(versionsYaml, imagesToBuild) {
@@ -62,17 +46,17 @@ def validateFileIntegrity(versionsYaml, imagesToBuild) {
     try {
         commonConfig = readYaml file: 'common/config.yaml'
     } catch (Exception e) {
-        echo 'WARNING: readYaml not available, falling back to yq for config.yaml'
-        sh 'chmod +x tools/yq'
-        commonConfig = sh(script: './tools/yq eval -o=json common/config.yaml', returnStdout: true).trim()
+        echo "WARNING: readYaml not available, falling back to yq for config.yaml"
+        sh "chmod +x tools/yq"
+        commonConfig = sh(script: "./tools/yq eval -o=json common/config.yaml", returnStdout: true).trim()
         commonConfig = readJSON text: commonConfig
     }
 
     if (!commonConfig.default) {
-        error('Missing default section in common/config.yaml')
+        error("Missing default section in common/config.yaml")
     }
 
-    echo '✓ File integrity validation completed'
+    echo "✓ File integrity validation completed"
 }
 
 return this

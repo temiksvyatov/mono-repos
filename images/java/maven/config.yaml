@@ -1,6 +1,4 @@
-name_template: "docker-java{{version}}maven-{{flavor}}"
-target_path: "microservices/infra/build/java"
-flavor: "alpine"
+name: docker-java-{{ version }}-maven-alpine
 packages:
   - ca-certificates
   - bash

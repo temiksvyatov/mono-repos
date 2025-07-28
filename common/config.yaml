@@ -1,8 +1,7 @@
 default:
   package_manager: apk
   registry: docker-mf-middle-dev-local.nexign.com
-  target_path: microservices/infra/runtime/base
-  name_template: "docker-{{image_name}}-{{version}}"
+  target_registry: microservices/infra/runtime/base
   packages:
     - ca-certificates
     - bash

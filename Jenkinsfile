@@ -56,11 +56,6 @@ pipeline {
             defaultValue: true,
             description: 'Generate and send pipeline summary report'
         )
-        string(
-        name: 'TAG_SUFFIX',
-        defaultValue: 'latest',
-        description: 'Tag suffix (latest, dev, 1.0.0 etc)'
-        )
     }
 
     stages {

@@ -9,12 +9,14 @@ golang:
     - version: latest
       base_image: docker.nexign.com/golang:1-alpine
 node:
-  - version: 16
-    base_image: docker.nexign.com/node:16-alpine
-  - version: 18
-    base_image: docker.nexign.com/node:18-alpine
-  - version: 20
-    base_image: docker.nexign.com/node:20-alpine
+  format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/node/docker-node{version}-alpine:latest"
+  versions:
+    - version: 16
+      base_image: docker.nexign.com/node:16-alpine
+    - version: 18
+      base_image: docker.nexign.com/node:18-alpine
+    - version: 20
+      base_image: docker.nexign.com/node:20-alpine
 java:
   maven:
     format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/java/docker-java{version}maven-alpine:latest"
