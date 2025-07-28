@@ -114,86 +114,12 @@ def buildSingleImage(imageName, versionData, successful, failed, imageData) {
             echo "✗ Error building image: ${imageTag}"
         }
     } catch (Exception e) {
-        failed.add(imageTag ?: "${imageName}:${versionData.version}")
-        error "Exception while building image: ${e.message}"
+        failed.add(imageTag)
+        echo "✗ Exception while building image ${imageTag}: ${e.message}"
+        log += "\nException: ${e.message}"
     }
-}
-
-def getDynamicImageTag(imageName, versionData, versionsData, params) {
-    def config = loadAllConfigs(imageName, versionData.version)
-    def templateData = prepareTemplateData(imageName, versionData, versionsData, config)
-
-    def resolvedName = evaluateTemplate(
-        config.name_template ?: "docker-${imageName.replace('/', '-')}-{{version}}",
-        templateData
-    ).replaceAll('[^a-zA-Z0-9._-]', '-')
-     .replaceAll('-+', '-')
-     .toLowerCase()
-
-    def registry = config.registry ?:
-        params.REGISTRY_URL.replaceAll('^https?://', '')
-
-    def targetPath = config.target_path ?:
-        "microservices/infra/${getDefaultSubPath(imageName)}"
-
-    def fullTag = "${registry}/${targetPath}/${resolvedName}:${params.TAG_SUFFIX ?: 'latest'}"
-
-    echo "Generated tag for ${imageName}: ${fullTag}"
-    echo "Template data: ${templateData}"
-    return fullTag
-}
-
-private def loadAllConfigs(imageName, version) {
-    def configs = []
-
-    // Load common config
-    if (fileExists('common/config.yaml')) {
-        configs << readYaml file: 'common/config.yaml'
-    }
-
-    // Load image-level config
-    def imageConfigPath = "images/${imageName}/config.yaml"
-    if (fileExists(imageConfigPath)) {
-        configs << readYaml file: imageConfigPath
-    }
-
-    // Load version-level config
-    def versionConfigPath = "images/${imageName}/${version}/config.yaml"
-    if (fileExists(versionConfigPath)) {
-        configs << readYaml file: versionConfigPath
-    }
-
-    return configs.reverse().inject([:]) { result, cfg -> result + (cfg ?: [:]) }
-}
-
-private def prepareTemplateData(imageName, versionData, versionsData, config) {
-    def data = [:]
-    data.putAll(versionData)
-    data.putAll(config)
-    data['image_name'] = imageName
-    data['base_image_name'] = versionData.base_image?.split(':')?.getAt(0) ?: ''
-    data['base_image_tag'] = versionData.base_image?.split(':')?.getAt(1) ?: ''
-    return data
-}
-
-private def evaluateTemplate(template, data) {
-    def result = template
-    data.each { key, value ->
-        if (value != null) {
-            result = result.replace("{{${key}}}", value.toString())
-        }
-    }
-    return result
-}
-
-private def getDefaultSubPath(imageName) {
-    switch (imageName.split('/')[0]) {
-        case 'python': return 'build/python'
-        case 'java': return 'build/java'
-        case 'node': return 'build/node'
-        case 'golang': return 'build/golang'
-        default: return 'runtime/base'
-    }
+    def duration = "${(System.currentTimeMillis() - startTime) / 1000}s"
+    return [image: imageTag, log: log, duration: duration]
 }
 
 return this
