@@ -111,27 +111,30 @@ def getDynamicImageTag(imageName, versionData, versionsData, params) {
     return fullTag
 }
 
-private def loadAllConfigs(imageName, version) {
+def loadAllConfigs(imageName, version) {
     def configs = []
 
-    // Load common config
+    // 1. Common config (исправленный синтаксис)
     if (fileExists('common/config.yaml')) {
-        configs << readYaml file: 'common/config.yaml'
+        configs << readYaml(file: 'common/config.yaml')
     }
 
-    // Load image-level config
+    // 2. Image-level config
     def imageConfigPath = "images/${imageName}/config.yaml"
     if (fileExists(imageConfigPath)) {
-        configs << readYaml file: imageConfigPath
+        configs << readYaml(file: imageConfigPath)
     }
 
-    // Load version-level config
+    // 3. Version-level config
     def versionConfigPath = "images/${imageName}/${version}/config.yaml"
     if (fileExists(versionConfigPath)) {
-        configs << readYaml file: versionConfigPath
+        configs << readYaml(file: versionConfigPath)
     }
 
-    return configs.reverse().inject([:]) { result, cfg -> result + (cfg ?: [:]) }
+    // Merge с приоритетом версионных конфигов
+    return configs.reverse().inject([:]) { result, cfg ->
+        result + (cfg ?: [:])
+    }
 }
 
 private def prepareTemplateData(imageName, versionData, versionsData, config) {
