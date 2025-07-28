@@ -4,39 +4,47 @@ import sys
 from jinja2 import Environment, FileSystemLoader
 
 def generate_dockerfile(image_name, version_data, common_config, env):
-    """Генерирует Dockerfile для указанной версии образа."""
-    version = version_data['version']
-    final_config = common_config.get('default', {})
+    """Generates Dockerfile with version-specific configurations"""
+    final_config = {}
+    final_config.update(common_config.get('default', {}))
 
-    # Config check for specific version
-    version_config_path = f"images/{image_name}/{version}/config.yaml"
+    # Load version-specific config
+    version_config_path = f"images/{image_name}/{version_data['version']}/config.yaml"
     if os.path.exists(version_config_path):
         with open(version_config_path, 'r') as f:
-            version_config = yaml.safe_load(f)
-            if version_config:
-                final_config.update(version_config)
-    else:
-        image_config_path = f"images/{image_name}/config.yaml"
-        if os.path.exists(image_config_path):
-            with open(image_config_path, 'r') as f:
-                image_config = yaml.safe_load(f)
-                if image_config:
-                    final_config.update(image_config)
+            final_config.update(yaml.safe_load(f) or {})
 
     final_config.update(version_data)
-    final_config['name'] = f"{image_name.replace('/', '-')}-{version}"
+    final_config['image_name'] = image_name
 
-    # Template check for specific version
-    version_template_path = f"images/{image_name}/{version}/Dockerfile.j2"
-    if os.path.exists(version_template_path):
-        template_file = version_template_path
-    else:
-        image_template_path = f"images/{image_name}/Dockerfile.j2"
-        template_file = image_template_path if os.path.exists(image_template_path) else 'common/templates/Dockerfile.common.j2'
+    # Загрузка конфигов с приоритетом: версия > образ > общий
+    config_paths = [
+        f"images/{image_name}/config.yaml",
+        f"images/{image_name}/{version_data['version']}/config.yaml"
+    ]
+
+    for path in config_paths:
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                final_config.update(yaml.safe_load(f) or {})
+
+    final_config.update(version_data)
+    final_config['name'] = f"{image_name}-{version_data['version']}"
+
+    # Поиск шаблона с приоритетом: версия > образ > общий
+    template_candidates = [
+        f"images/{image_name}/{version_data['version']}/Dockerfile.j2",
+        f"images/{image_name}/Dockerfile.j2",
+        'common/templates/Dockerfile.common.j2'
+    ]
+
+    template_file = next((t for t in template_candidates if os.path.exists(t)), None)
+
+    if not template_file:
+        raise FileNotFoundError(f"No template found for {image_name}/{version_data['version']}")
 
     template = env.get_template(template_file)
-    dockerfile_content = template.render(**final_config)
-    return dockerfile_content
+    return template.render(**final_config)
 
 if __name__ == "__main__":
     image_name = sys.argv[1]
