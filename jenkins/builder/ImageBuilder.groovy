@@ -176,7 +176,6 @@ def buildSingleImage(imageName, versionData, successful, failed, imageData) {
             sh "${buildCommand} || true"
         }
     } catch (Exception e) {
-        def imageTag = getImageTag(imageName, versionData, imageData)
         failed.add(imageTag)
         echo "✗ Exception while building image ${imageTag}: ${e.message}"
         // Логируем stack trace для отладки
