@@ -123,7 +123,6 @@ def buildSingleImage(imageName, versionData, successful, failed, imageData) {
     def imageTag = getImageTag(imageName, versionData, imageData)
     def log = ""
     try {
-        def imageTag = getImageTag(imageName, versionData, imageData)
         def dockerfilePath = "generated/${imageName}/${versionData.version}/Dockerfile"
 
         echo "Checking Dockerfile existence at: ${dockerfilePath}"
