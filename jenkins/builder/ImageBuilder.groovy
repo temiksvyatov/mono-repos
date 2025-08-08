@@ -8,27 +8,52 @@ def buildImages(versionsData, imagesToBuild, params) {
     imagesToBuild.each { image ->
         def imageParts = image.split('/')
         def imageData = versionsData
+
+        // Навигируемся по структуре versions.yaml
         for (part in imageParts) {
             imageData = imageData[part]
         }
-        if (!imageData?.versions) {
-            error("No versions found for image ${image} in versions.yaml")
-        }
-        imageData.versions.each { version ->
-            def priority = version.priority ?: 1000
-            if (!imagesByPriority[priority]) {
-                imagesByPriority[priority] = []
+
+        // Получаем format для образа
+        def imageFormat = imageData.get('format', null)
+
+        // Ищем список версий
+        def versionsList = null
+        imageData.each { key, value ->
+            if (value instanceof List && key != 'format') {
+                versionsList = value
+                return true // break equivalent
             }
-            imagesByPriority[priority].add([image: image, version: version, imageData: imageData])
+        }
+
+        if (versionsList) {
+            versionsList.each { version ->
+                // Добавляем format в данные версии
+                if (imageFormat) {
+                    version.image_tag_format = imageFormat
+                }
+
+                def priority = version.priority ?: 1000
+                if (!imagesByPriority[priority]) {
+                    imagesByPriority[priority] = []
+                }
+                imagesByPriority[priority].add([
+                    image: image,
+                    version: version,
+                    imageData: imageData
+                ])
+            }
         }
     }
 
+    def sortedPriorities = imagesByPriority.keySet().sort()
+
     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-        def sortedPriorities = imagesByPriority.keySet().sort()
         sortedPriorities.each { priority ->
             def imagesInPriority = imagesByPriority[priority]
             def maxThreads = params.MAX_PARALLEL_THREADS.toInteger()
             def imageGroups = imagesInPriority.collate(maxThreads)
+
             imageGroups.each { group ->
                 if (params.BUILD_MODE == 'parallel') {
                     def parallelBuilds = [:]
@@ -51,20 +76,22 @@ def buildImages(versionsData, imagesToBuild, params) {
             }
         }
     }
+
     return [
         successful: successful,
-        failed: failed,
-        logs: logs,
-        imageDurations: imageDurations
+        failed: failed
     ]
 }
 
 def getImageTag(imageName, versionData, imageData) {
-    def format = imageData.image_tag_format
+    def format = imageData?.get('format') ?: versionData?.image_tag_format
+
     if (!format) {
+        // Fallback to old logic if format is not specified
         def registry = "docker-mf-middle-dev-local.nexign.com"
         def basePath = "microservices/infra"
         def version = versionData.version
+
         switch (imageName) {
             case 'alpine':
                 return "${registry}/${basePath}/runtime/base/docker-base-alpine:latest"
@@ -86,6 +113,8 @@ def getImageTag(imageName, versionData, imageData) {
                 return "${registry}/${basePath}/runtime/base/${imageName.replace('/', '-')}:latest"
         }
     }
+
+    // Используем format с подстановкой версии
     return format.replace('{version}', versionData.version)
 }
 
@@ -94,29 +123,64 @@ def buildSingleImage(imageName, versionData, successful, failed, imageData) {
     def imageTag = getImageTag(imageName, versionData, imageData)
     def log = ""
     try {
+        def imageTag = getImageTag(imageName, versionData, imageData)
         def dockerfilePath = "generated/${imageName}/${versionData.version}/Dockerfile"
+
         echo "Checking Dockerfile existence at: ${dockerfilePath}"
         if (!fileExists(dockerfilePath)) {
             error("Dockerfile not found at: ${dockerfilePath}")
         }
+
         echo "Building image: ${imageTag}"
+
+        // Подготовка build args для безопасной передачи секретов
+        def buildArgs = ""
+        if (imageName.contains('python') && versionData.python_registry) {
+            // Для Python образов используем credentials
+            withCredentials([string(credentialsId: 'artifactory-token', variable: 'ARTIFACTORY_TOKEN')]) {
+                buildArgs = "--build-arg ARTIFACTORY_TOKEN=${ARTIFACTORY_TOKEN}"
+            }
+        }
+
+        def buildCommand = """
+            DOCKER_BUILDKIT=1 docker build \
+            --no-cache --pull --progress=plain \
+            ${buildArgs} \
+            -t ${imageTag} \
+            -f ${dockerfilePath} .
+        """.stripIndent().trim()
+
         def buildResult = sh(
-            script: "docker build --no-cache --pull --progress=plain -t ${imageTag} -f ${dockerfilePath} .",
-            returnStatus: true,
-            returnStdout: true
+            script: buildCommand,
+            returnStatus: true
         )
         log = buildResult
         if (buildResult == 0) {
             successful.add(imageTag)
             echo "✓ Successfully built image: ${imageTag}"
+
+            // Логируем размер образа
+            try {
+                def imageSize = sh(
+                    script: "docker images ${imageTag} --format '{{.Size}}'",
+                    returnStdout: true
+                ).trim()
+                echo "Image size: ${imageSize}"
+            } catch (Exception e) {
+                echo "Could not determine image size: ${e.message}"
+            }
         } else {
             failed.add(imageTag)
             echo "✗ Error building image: ${imageTag}"
+            // Показываем детальный вывод при ошибке
+            sh "${buildCommand} || true"
         }
     } catch (Exception e) {
+        def imageTag = getImageTag(imageName, versionData, imageData)
         failed.add(imageTag)
         echo "✗ Exception while building image ${imageTag}: ${e.message}"
-        log += "\nException: ${e.message}"
+        // Логируем stack trace для отладки
+        echo "Stack trace: ${e.getStackTrace().join('\n')}"
     }
     def duration = "${(System.currentTimeMillis() - startTime) / 1000}s"
     return [image: imageTag, log: log, duration: duration]
