@@ -1,7 +1,5 @@
-// jenkins/utils/Utils.groovy
 def getChangedFiles() {
     try {
-        // исправил некорректный fallback и команду
         def changes = sh(
             script: 'git diff --name-only HEAD~1 HEAD || echo ""',
             returnStdout: true
@@ -14,32 +12,19 @@ def getChangedFiles() {
 }
 
 def getChangedImages(changedFiles) {
-    // // Если изменён versions.yaml — считаем, что нужно пересобрать все (return empty -> "all" behavior)
-    // if (changedFiles.contains('versions.yaml')) {
-    //     echo "Detected versions.yaml change -> rebuilding all images"
-    //     return []
-    // }
-
     def changedImages = []
     changedFiles.each { file ->
         if (file.startsWith('images/')) {
             def parts = file.split('/')
-            // parts: ["images","python","311","Dockerfile.j2"] или ["images","python","Dockerfile.j2"] или ["images","java","maven","config.yaml"]
-            if (parts.length >= 3) {
-                def image = parts[1]
-                def maybe = parts[2]
-                // if directory layout contains version folder (digits)
-                if (maybe.isInteger()) {
-                    // images/python/311/...
-                    changedImages.add("${image}/${maybe}")
-                } else if (parts.length >= 4 && parts[3] in ['Dockerfile.j2', 'config.yaml']) {
-                    // images/java/maven/Dockerfile.j2 -> treat as image/sub
-                    changedImages.add("${image}/${maybe}")
-                } else if (parts.length == 3 && (parts[2] in ['Dockerfile.j2', 'config.yaml'])) {
-                    // images/node/Dockerfile.j2
-                    changedImages.add(image)
+            if (parts.length >= 2) {
+                // Корневой образ, например, images/alpine/Dockerfile.j2
+                if (parts.length == 3 && (parts[2] == 'Dockerfile.j2' || parts[2] == 'config.yaml')) {
+                    changedImages.add(parts[1])
                 }
-                // deduplicate
+                // Подмодуль, например, images/java/maven/Dockerfile.j2
+                else if (parts.length == 4 && (parts[3] == 'Dockerfile.j2' || parts[3] == 'config.yaml')) {
+                    changedImages.add("${parts[1]}/${parts[2]}")
+                }
                 changedImages = changedImages.unique()
             }
         }
@@ -49,7 +34,7 @@ def getChangedImages(changedFiles) {
 
 def determineImagesToBuild(versionsYaml, changedImages, imagesToBuildParam) {
     def imagesToBuild = []
-    // если изменения явно указывают на образы - используем их (список может быть empty -> означает "all")
+
     if (changedImages.size() > 0) {
         echo "Detected changes in images: ${changedImages}"
         return changedImages
@@ -57,14 +42,14 @@ def determineImagesToBuild(versionsYaml, changedImages, imagesToBuildParam) {
 
     if (imagesToBuildParam == 'all') {
         versionsYaml.each { key, value ->
-            if (value instanceof List) {
-                // node, python, alpine, etc. -> добавляем version-specific entries
-                value.each { v -> imagesToBuild.add("${key}/${v.version}") }
+            if (value instanceof Map && value.versions) {
+                // Корневой образ с полем versions, например, alpine, golang
+                imagesToBuild.add(key)
             } else if (value instanceof Map) {
-                // nested groups: java: { maven: [...], gradle: [...] }
+                // Подмодули, например, java/maven
                 value.each { subKey, subValue ->
-                    if (subValue instanceof List) {
-                        subValue.each { v -> imagesToBuild.add("${key}/${subKey}/${v.version}") }
+                    if (subValue instanceof Map && subValue.versions) {
+                        imagesToBuild.add("${key}/${subKey}")
                     }
                 }
             }
@@ -72,6 +57,7 @@ def determineImagesToBuild(versionsYaml, changedImages, imagesToBuildParam) {
     } else {
         imagesToBuild = imagesToBuildParam.split(',').collect { it.trim() }
     }
+
     return imagesToBuild
 }
 
