@@ -1,12 +1,7 @@
 def generateDockerfiles(imagesToBuild) {
     def successful = []
     def failed = []
-    def logs = [:]
-    def durations = [:]
-
     imagesToBuild.each { image ->
-        def startTime = System.currentTimeMillis()
-        def log = ""
         try {
             echo "Generating Dockerfile for ${image}"
             def result = sh(
@@ -14,62 +9,42 @@ def generateDockerfiles(imagesToBuild) {
                     source venv/bin/activate
                     python3 jenkins/dockerfile/generate_dockerfile.py '${image}'
                 """,
-                returnStatus: true,
-                returnStdout: true
+                returnStatus: true
             )
-            log = result
             if (result == 0) {
                 successful.add(image)
                 echo "✓ Successfully generated Dockerfile for ${image}"
+                // show generated files (if any)
                 def versionsData = readJSON text: env.VERSIONS_DATA
                 def imageParts = image.split('/')
-                def imageData = versionsData
-                for (part in imageParts) {
-                    imageData = imageData[part]
-                }
-                if (imageData instanceof Map && imageData.versions) {
-                    imageData.versions.each { version ->
-                        def dockerfilePath = "generated/${image}/${version.version}/Dockerfile"
-                        if (fileExists(dockerfilePath)) {
-                            def content = readFile file: dockerfilePath
-                            echo "=== Contents of ${dockerfilePath} ===\n${content}\n=== End of ${dockerfilePath} ==="
-                            log += "\n=== Contents of ${dockerfilePath} ===\n${content}\n=== End of ${dockerfilePath} ==="
-                        } else {
-                            echo "WARNING: Dockerfile not found at ${dockerfilePath}"
-                            log += "\nWARNING: Dockerfile not found at ${dockerfilePath}"
-                        }
-                    }
+                // compute where the generated files are expected:
+                def basePath = imageParts[0]
+                def generatedBase = "generated/${image}"
+                // If was a top-level image (e.g., 'node/16') generated path = generated/node/16/Dockerfile
+                if (fileExists(generatedBase)) {
+                    def content = readFile file: "${generatedBase}/Dockerfile"
+                    echo "=== Contents of ${generatedBase}/Dockerfile ===\n${content}\n=== End ==="
                 } else {
-                    def dockerfilePath = "generated/${image}/Dockerfile"
-                    if (fileExists(dockerfilePath)) {
-                        def content = readFile file: dockerfilePath
-                        echo "=== Contents of ${dockerfilePath} ===\n${content}\n=== End of ${dockerfilePath} ==="
-                        log += "\n=== Contents of ${dockerfilePath} ===\n${content}\n=== End of ${dockerfilePath} ==="
+                    // maybe generated under generated/<imageBase>/<version>
+                    def maybePath = "generated/${basePath}"
+                    if (fileExists(maybePath)) {
+                        echo "Info: listing ${maybePath}"
                     } else {
-                        echo "WARNING: Dockerfile not found at ${dockerfilePath}"
-                        log += "\nWARNING: Dockerfile not found at ${dockerfilePath}"
+                        echo "WARNING: Dockerfile not found for ${image} (expected ${generatedBase})"
                     }
                 }
             } else {
                 failed.add(image)
                 echo "✗ Error generating Dockerfile for ${image}"
-                log += "\nError: Non-zero exit code from generate_dockerfile.py"
             }
         } catch (Exception e) {
             failed.add(image)
             echo "✗ Exception while generating Dockerfile for ${image}: ${e.message}"
-            log += "\nException: ${e.message}"
         }
-        logs[image] = log
-        durations[image] = "${(System.currentTimeMillis() - startTime) / 1000}s"
     }
-
     return [
         successful: successful,
-        failed: failed,
-        logs: logs,
-        durations: durations
+        failed: failed
     ]
 }
-
 return this
