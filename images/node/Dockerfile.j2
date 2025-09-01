@@ -10,7 +10,3 @@ RUN ALPINE_VERSION_MINOR=$(cat /etc/alpine-release) && \
 {% block specific %}
 WORKDIR /data/node
 {% endblock %}
-
-{% block extra_env %}
-ENV NODE_OPTIONS="--openssl-legacy-provider"
-{% endblock %}
