@@ -77,7 +77,7 @@
 ### Пример параметров
 
 - **BUILD_MODE**: Режим сборки (parallel или sequential).
-- **IMAGES_TO_BUILD**: Список образов для сборки (all или через запятую, например, alpine,java/maven).
+- **IMAGES_TO_BUILD**: Список образов для сборки (all или через запятую, например, alpine,golang,java/maven).
 - **REGISTRY_URL**: URL реестра Docker.
 - **REGISTRY_CREDENTIALS**: ID учетных данных для реестра Docker.
 - **BUILDER_IMAGE**: Образ для сборки Dockerfile.
