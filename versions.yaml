@@ -21,26 +21,24 @@ java:
   maven:
     format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/java/docker-java{version}maven-alpine:latest"
     versions:
-      - version: 11
-        base_image: docker.nexign.com/maven:3-eclipse-temurin-11-alpine
       - version: 17
         base_image: docker.nexign.com/maven:3-eclipse-temurin-17-alpine
       - version: 21
         base_image: docker.nexign.com/maven:3-eclipse-temurin-21-alpine
+      - version: 25
+        base_image: docker.nexign.com/maven:3-eclipse-temurin-25-alpine
   gradle:
     format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/java/docker-java{version}gradle-alpine:latest"
     versions:
-      - version: 11
-        base_image: docker.nexign.com/gradle:jdk11-alpine
       - version: 17
         base_image: docker.nexign.com/gradle:jdk17-alpine
       - version: 21
         base_image: docker.nexign.com/gradle:jdk21-alpine
+      - version: 25
+        base_image: docker.nexign.com/gradle:jdk25-alpine
 jre:
   format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/java/docker-java{version}jre-alpine:latest"
   versions:
-    - version: 11
-      base_image: docker.nexign.com/eclipse-temurin:11-jre-alpine
     - version: 17
       base_image: docker.nexign.com/eclipse-temurin:17-jre-alpine
     - version: 21
