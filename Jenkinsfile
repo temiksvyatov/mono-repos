@@ -4,7 +4,6 @@ import com.nmf.ci.utils.ExternalUtils
 def ExternalUtils externalUtils = new ExternalUtils(this)
 def PIPELINE_REPORT = [:]
 
-// Define script variables at top level to ensure global scope
 def utils
 def validation
 def dockerfileGenerator
