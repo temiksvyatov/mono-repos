@@ -7,7 +7,7 @@ RUN rm -f /etc/yum.repos.d/* && \
     curl --connect-timeout 30 http://repo.nexign.com/scripts/add-elrepo-repo.sh | sh && \
     update-ca-trust force-enable && \
     update-ca-trust extract && \
-    rpm -e --nodeps openssl-fips-provider-so || true && \
+    # rpm -e --nodeps openssl-fips-provider-so || true && \
     {{ package_manager }} upgrade -y && \
     {{ package_manager }} install -y --nodocs {{ packages | join(' ') }} && \
     {{ package_manager }} clean all
