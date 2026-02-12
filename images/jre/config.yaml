@@ -40,3 +40,7 @@ java_certs:
     file: yota-ca-00.crt
   - alias: yotaSUBCA1
     file: yota-ca-01.crt
+  - alias: rootMFDMZ
+    file: root-mfdmz-ca.crt
+  - alias: subMFDMZ
+    file: sub-mfdmz-ca01.crt
