@@ -17,6 +17,8 @@ node:
       base_image: docker.nexign.com/node:18-alpine
     - version: 20
       base_image: docker.nexign.com/node:20-alpine
+    - version: 22
+      base_image: docker.nexign.com/node:22-alpine
 java:
   maven:
     format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/java/docker-java{version}maven-alpine:latest"
