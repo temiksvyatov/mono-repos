@@ -5,6 +5,8 @@ def ExternalUtils externalUtils = new ExternalUtils(this)
 def PIPELINE_REPORT = [:]
 
 def utils
+def reportModel
+def reportUtils
 def validation
 def dockerfileGenerator
 def imageBuilder
@@ -36,6 +38,11 @@ pipeline {
             description: 'Docker registry URL'
         )
         string(
+            name: 'REGISTRY_NAMESPACE',
+            defaultValue: 'microservices/infra',
+            description: 'Base namespace/path in registry for images'
+        )
+        string(
             name: 'REGISTRY_CREDENTIALS',
             defaultValue: 'registry-user-password',
             description: 'Credentials ID for Docker registry'
@@ -64,22 +71,30 @@ pipeline {
                     def startTime = System.currentTimeMillis()
                     echo '=== Loading Scripts in Parallel ==='
                     def scriptLoads = [
-                        'utils': { utils = load 'jenkins/utils/Utils.groovy' },
-                        'validation': { validation = load 'jenkins/validation/Validation.groovy' },
+                        'utils'          : { utils = load 'jenkins/utils/Utils.groovy' },
+                        'reportModel'    : { reportModel = load 'jenkins/report/ReportModel.groovy' },
+                        'reportUtils'    : { reportUtils = load 'jenkins/report/ReportUtils.groovy' },
+                        'validation'     : { validation = load 'jenkins/validation/Validation.groovy' },
                         'dockerfileGenerator': { dockerfileGenerator = load 'jenkins/dockerfile/DockerfileGenerator.groovy' },
-                        'imageBuilder': { imageBuilder = load 'jenkins/builder/ImageBuilder.groovy' },
-                        'smokeTests': { smokeTests = load 'jenkins/tests/SmokeTests.groovy' },
-                        'imagePusher': { imagePusher = load 'jenkins/pusher/ImagePusher.groovy' },
+                        'imageBuilder'   : { imageBuilder = load 'jenkins/builder/ImageBuilder.groovy' },
+                        'smokeTests'     : { smokeTests = load 'jenkins/tests/SmokeTests.groovy' },
+                        'imagePusher'    : { imagePusher = load 'jenkins/pusher/ImagePusher.groovy' },
                         'reportGenerator': { reportGenerator = load 'jenkins/report/ReportGenerator.groovy' }
                     ]
                     parallel scriptLoads
+
+                    if (!utils || !reportModel || !reportUtils || !validation || !dockerfileGenerator || !imageBuilder || !smokeTests || !imagePusher || !reportGenerator) {
+                        error('Failed to load one or more required Jenkins scripts')
+                    }
+
                     env.SCRIPTS_LOADED = 'true'
-                    PIPELINE_REPORT.loadScripts = [
-                        status: 'SUCCESS',
+                    PIPELINE_REPORT = reportModel.initReport()
+                    PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'loadScripts', [
+                        status  : 'SUCCESS',
                         duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
-                        message: 'Scripts loaded successfully'
-                    ]
-                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                        message : 'Scripts loaded successfully'
+                    ])
+                    reportModel.syncEnv(PIPELINE_REPORT)
                     echo '=== Scripts Loaded Successfully ==='
                 }
             }
@@ -165,13 +180,13 @@ pipeline {
                             validation.validateImageDirectories(imagesToBuild)
                             validation.validateFileIntegrity(versionsYaml, imagesToBuild)
 
-                            PIPELINE_REPORT.validation = [
-                                status: 'SUCCESS',
-                                duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
-                                message: 'Initial validation completed successfully',
+                            PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'validation', [
+                                status     : 'SUCCESS',
+                                duration   : "${(System.currentTimeMillis() - startTime) / 1000}s",
+                                message    : 'Initial validation completed successfully',
                                 imagesCount: imagesToBuild.size()
-                            ]
-                            env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                            ])
+                            reportModel.syncEnv(PIPELINE_REPORT)
                             echo '=== Initial Validation Completed Successfully ==='
                         }
                     }
@@ -180,12 +195,11 @@ pipeline {
             post {
                 failure {
                     script {
-                        PIPELINE_REPORT.validation = [
-                            status: 'FAILED',
-                            duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                        PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'validation', [
+                            status : 'FAILED',
                             message: 'Initial validation failed'
-                        ]
-                        env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                        ])
+                        reportModel.syncEnv(PIPELINE_REPORT)
                     }
                 }
             }
@@ -206,21 +220,20 @@ pipeline {
                                 builderImage.pull()
                                 echo "✓ Builder image found and pulled: ${params.BUILDER_IMAGE}"
                             }
-                            PIPELINE_REPORT.environment = [
-                                status: 'SUCCESS',
-                                duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
-                                message: 'Environment setup completed successfully',
+                            PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'environment', [
+                                status      : 'SUCCESS',
+                                duration    : "${(System.currentTimeMillis() - startTime) / 1000}s",
+                                message     : 'Environment setup completed successfully',
                                 builderImage: params.BUILDER_IMAGE
-                            ]
-                            env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                            ])
+                            reportModel.syncEnv(PIPELINE_REPORT)
                             echo '=== Environment Setup Completed ==='
                         } catch (Exception e) {
-                            PIPELINE_REPORT.environment = [
-                                status: 'FAILED',
-                                duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                            PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'environment', [
+                                status : 'FAILED',
                                 message: "Failed to set up environment: ${e.message}"
-                            ]
-                            env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                            ])
+                            reportModel.syncEnv(PIPELINE_REPORT)
                             error("Failed to find or pull builder image: ${params.BUILDER_IMAGE}. Error: ${e.message}")
                         }
                     }
@@ -252,15 +265,15 @@ pipeline {
                             if (generationResult.successful.size() == 0) {
                                 error('No Dockerfiles were generated successfully. Aborting pipeline.')
                             }
-                            PIPELINE_REPORT.generation = [
-                                status: generationResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
-                                duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                            PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'generation', [
+                                status    : generationResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
+                                duration  : "${(System.currentTimeMillis() - startTime) / 1000}s",
                                 successful: generationResult.successful,
-                                failed: generationResult.failed,
-                                logs: generationResult.logs,
-                                durations: generationResult.durations
-                            ]
-                            env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                                failed    : generationResult.failed,
+                                logs      : generationResult.logs,
+                                durations : generationResult.durations
+                            ])
+                            reportModel.syncEnv(PIPELINE_REPORT)
                             if (generationResult.failed.size() > 0) {
                                 unstable("WARNING: Failed to generate Dockerfiles for: ${generationResult.failed}")
                             }
@@ -287,15 +300,15 @@ pipeline {
                         generationResult.successful.contains(it)
                     }
                     def buildResult = imageBuilder.buildImages(versionsData, imagesToBuildFiltered, params)
-                    PIPELINE_REPORT.build = [
-                        status: buildResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
-                        duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
-                        successful: buildResult.successful,
-                        failed: buildResult.failed,
-                        logs: buildResult.logs,
+                    PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'build', [
+                        status        : buildResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
+                        duration      : "${(System.currentTimeMillis() - startTime) / 1000}s",
+                        successful    : buildResult.successful,
+                        failed        : buildResult.failed,
+                        logs          : buildResult.logs,
                         imageDurations: buildResult.imageDurations
-                    ]
-                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                    ])
+                    reportModel.syncEnv(PIPELINE_REPORT)
                     if (buildResult.successful.size() == 0) {
                         error('No images were built successfully. Aborting pipeline.')
                     }
@@ -318,15 +331,15 @@ pipeline {
                     echo '=== Running Smoke Tests ==='
                     def buildResult = PIPELINE_REPORT.build
                     def testResult = smokeTests.runSmokeTests(buildResult.successful)
-                    PIPELINE_REPORT.smokeTests = [
-                        status: testResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
-                        duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
-                        successful: testResult.successful,
-                        failed: testResult.failed,
-                        logs: testResult.logs,
+                    PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'smokeTests', [
+                        status       : testResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
+                        duration     : "${(System.currentTimeMillis() - startTime) / 1000}s",
+                        successful   : testResult.successful,
+                        failed       : testResult.failed,
+                        logs         : testResult.logs,
                         testDurations: testResult.testDurations
-                    ]
-                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                    ])
+                    reportModel.syncEnv(PIPELINE_REPORT)
                     if (testResult.failed.size() > 0) {
                         unstable("WARNING: Smoke tests failed for: ${testResult.failed}")
                     }
@@ -346,15 +359,15 @@ pipeline {
                     echo '=== Pushing Images to Registry ==='
                     def testResult = PIPELINE_REPORT.smokeTests
                     def pushResult = imagePusher.pushImages(testResult.successful, params)
-                    PIPELINE_REPORT.push = [
-                        status: pushResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
-                        duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
-                        successful: pushResult.successful,
-                        failed: pushResult.failed,
-                        logs: pushResult.logs,
+                    PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'push', [
+                        status       : pushResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
+                        duration     : "${(System.currentTimeMillis() - startTime) / 1000}s",
+                        successful   : pushResult.successful,
+                        failed       : pushResult.failed,
+                        logs         : pushResult.logs,
                         pushDurations: pushResult.pushDurations
-                    ]
-                    env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
+                    ])
+                    reportModel.syncEnv(PIPELINE_REPORT)
                     if (pushResult.failed.size() > 0) {
                         unstable("WARNING: Failed to push images: ${pushResult.failed}")
                     }
@@ -389,43 +402,7 @@ pipeline {
             script {
                 if (params.GENERATE_AND_SEND_REPORT) {
                     try {
-                        def successfulImages = PIPELINE_REPORT.push?.successful ?: []
-                        def failedImages = []
-                        def failureDetails = [:]
-
-                        // Collect failed images with their failure stages
-                        PIPELINE_REPORT.generation?.failed?.each { image ->
-                            failedImages.add(image)
-                            failureDetails[image] = 'Generate Dockerfiles'
-                        }
-                        PIPELINE_REPORT.build?.failed?.each { image ->
-                            if (!failedImages.contains(image)) {
-                                failedImages.add(image)
-                                failureDetails[image] = 'Build Images'
-                            }
-                        }
-                        PIPELINE_REPORT.smokeTests?.failed?.each { image ->
-                            if (!failedImages.contains(image)) {
-                                failedImages.add(image)
-                                failureDetails[image] = 'Smoke Tests'
-                            }
-                        }
-                        PIPELINE_REPORT.push?.failed?.each { image ->
-                            if (!failedImages.contains(image)) {
-                                failedImages.add(image)
-                                failureDetails[image] = 'Push Images to Registry'
-                            }
-                        }
-
-                        def message = """✅ Pipeline Succeeded!
-✔️ Successfully built and pushed images:
-${successfulImages.collect { "  - ${it}" }.join('\n') ?: 'None'}
-
-❌ Failed images:
-${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('\n') ?: 'None'}
-
-📄 Full report: ${env.BUILD_URL}artifact/report.html
-"""
+                        def message = reportUtils.buildSuccessMessage(PIPELINE_REPORT, env.BUILD_URL)
                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                     } catch (Exception e) {
                         echo "⚠️ Failed to send success notification: ${e.message}"
@@ -439,43 +416,7 @@ ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('
             script {
                 if (params.GENERATE_AND_SEND_REPORT) {
                     try {
-                        def successfulImages = PIPELINE_REPORT.push?.successful ?: []
-                        def failedImages = []
-                        def failureDetails = [:]
-
-                        // Collect failed images with their failure stages
-                        PIPELINE_REPORT.generation?.failed?.each { image ->
-                            failedImages.add(image)
-                            failureDetails[image] = 'Generate Dockerfiles'
-                        }
-                        PIPELINE_REPORT.build?.failed?.each { image ->
-                            if (!failedImages.contains(image)) {
-                                failedImages.add(image)
-                                failureDetails[image] = 'Build Images'
-                            }
-                        }
-                        PIPELINE_REPORT.smokeTests?.failed?.each { image ->
-                            if (!failedImages.contains(image)) {
-                                failedImages.add(image)
-                                failureDetails[image] = 'Smoke Tests'
-                            }
-                        }
-                        PIPELINE_REPORT.push?.failed?.each { image ->
-                            if (!failedImages.contains(image)) {
-                                failedImages.add(image)
-                                failureDetails[image] = 'Push Images to Registry'
-                            }
-                        }
-
-                        def message = """⚠️ Pipeline Unstable!
-✔️ Successfully built and pushed images:
-${successfulImages.collect { "  - ${it}" }.join('\n') ?: 'None'}
-
-❌ Failed images:
-${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('\n') ?: 'None'}
-
-📄 Full report: ${env.BUILD_URL}artifact/report.html
-"""
+                        def message = reportUtils.buildUnstableMessage(PIPELINE_REPORT, env.BUILD_URL)
                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                     } catch (Exception e) {
                         echo "⚠️ Failed to send unstable notification: ${e.message}"
@@ -489,39 +430,7 @@ ${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('
             script {
                 if (params.GENERATE_AND_SEND_REPORT) {
                     try {
-                        def failedImages = []
-                        def failureDetails = [:]
-
-                        // Collect failed images with their failure stages
-                        PIPELINE_REPORT.generation?.failed?.each { image ->
-                            failedImages.add(image)
-                            failureDetails[image] = 'Generate Dockerfiles'
-                        }
-                        PIPELINE_REPORT.build?.failed?.each { image ->
-                            if (!failedImages.contains(image)) {
-                                failedImages.add(image)
-                                failureDetails[image] = 'Build Images'
-                            }
-                        }
-                        PIPELINE_REPORT.smokeTests?.failed?.each { image ->
-                            if (!failedImages.contains(image)) {
-                                failedImages.add(image)
-                                failureDetails[image] = 'Smoke Tests'
-                            }
-                        }
-                        PIPELINE_REPORT.push?.failed?.each { image ->
-                            if (!failedImages.contains(image)) {
-                                failedImages.add(image)
-                                failureDetails[image] = 'Push Images to Registry'
-                            }
-                        }
-
-                        def message = """❌ Pipeline Failed!
-✖️ Failed images:
-${failedImages.collect { "  - ${it} (Failed at: ${failureDetails[it]})" }.join('\n') ?: 'No failure details available'}
-
-📄 Full report: ${env.BUILD_URL}artifact/report.html
-"""
+                        def message = reportUtils.buildFailureMessage(PIPELINE_REPORT, env.BUILD_URL)
                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                     } catch (Exception e) {
                         echo "⚠️ Failed to send failure notification: ${e.message}"

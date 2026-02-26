@@ -3,6 +3,22 @@ def buildImages(versionsData, imagesToBuild, params) {
     def failed = []
     def logs = [:]
     def imageDurations = [:]
+
+    def imagesByPriority = groupImagesByPriority(versionsData, imagesToBuild)
+
+    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
+        executeBuildPlan(imagesByPriority, params, successful, failed, logs, imageDurations)
+    }
+
+    return [
+        successful    : successful,
+        failed        : failed,
+        logs          : logs,
+        imageDurations: imageDurations
+    ]
+}
+
+def groupImagesByPriority(versionsData, imagesToBuild) {
     def imagesByPriority = [:]
 
     imagesToBuild.each { image ->
@@ -23,47 +39,44 @@ def buildImages(versionsData, imagesToBuild, params) {
         }
     }
 
-    docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
-        def sortedPriorities = imagesByPriority.keySet().sort()
-        sortedPriorities.each { priority ->
-            def imagesInPriority = imagesByPriority[priority]
-            def maxThreads = params.MAX_PARALLEL_THREADS.toInteger()
-            def imageGroups = imagesInPriority.collate(maxThreads)
-            imageGroups.each { group ->
-                if (params.BUILD_MODE == 'parallel') {
-                    def parallelBuilds = [:]
-                    group.each { item ->
-                        def imageKey = "${item.image}:${item.version.version}"
-                        parallelBuilds[imageKey] = {
-                            def result = buildSingleImage(item.image, item.version, successful, failed, item.imageData)
-                            logs[result.image] = result.log
-                            imageDurations[result.image] = result.duration
-                        }
-                    }
-                    parallel parallelBuilds
-                } else {
-                    group.each { item ->
-                        def result = buildSingleImage(item.image, item.version, successful, failed, item.imageData)
+    return imagesByPriority
+}
+
+def executeBuildPlan(imagesByPriority, params, successful, failed, logs, imageDurations) {
+    def sortedPriorities = imagesByPriority.keySet().sort()
+    sortedPriorities.each { priority ->
+        def imagesInPriority = imagesByPriority[priority]
+        def maxThreads = params.MAX_PARALLEL_THREADS.toInteger()
+        def imageGroups = imagesInPriority.collate(maxThreads)
+        imageGroups.each { group ->
+            if (params.BUILD_MODE == 'parallel') {
+                def parallelBuilds = [:]
+                group.each { item ->
+                    def imageKey = "${item.image}:${item.version.version}"
+                    parallelBuilds[imageKey] = {
+                        def result = buildSingleImage(item.image, item.version, successful, failed, item.imageData, params)
                         logs[result.image] = result.log
                         imageDurations[result.image] = result.duration
                     }
                 }
+                parallel parallelBuilds
+            } else {
+                group.each { item ->
+                    def result = buildSingleImage(item.image, item.version, successful, failed, item.imageData, params)
+                    logs[result.image] = result.log
+                    imageDurations[result.image] = result.duration
+                }
             }
         }
     }
-    return [
-        successful: successful,
-        failed: failed,
-        logs: logs,
-        imageDurations: imageDurations
-    ]
 }
 
-def getImageTag(imageName, versionData, imageData) {
+def getImageTag(imageName, versionData, imageData, params) {
     def format = imageData.image_tag_format
     if (!format) {
-        def registry = "docker-mf-middle-dev-local.nexign.com"
-        def basePath = "microservices/infra"
+        def registryUrl = params.REGISTRY_URL ?: 'https://docker-mf-middle-dev-local.nexign.com'
+        def registry = registryUrl.replaceFirst('^https?://', '')
+        def basePath = params.REGISTRY_NAMESPACE ?: 'microservices/infra'
         def version = versionData.version
         switch (imageName) {
             case 'alpine':
@@ -89,9 +102,9 @@ def getImageTag(imageName, versionData, imageData) {
     return format.replace('{version}', versionData.version)
 }
 
-def buildSingleImage(imageName, versionData, successful, failed, imageData) {
+def buildSingleImage(imageName, versionData, successful, failed, imageData, params) {
     def startTime = System.currentTimeMillis()
-    def imageTag = getImageTag(imageName, versionData, imageData)
+    def imageTag = getImageTag(imageName, versionData, imageData, params)
     def log = ""
     try {
         def dockerfilePath = "generated/${imageName}/${versionData.version}/Dockerfile"
