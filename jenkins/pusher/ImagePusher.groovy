@@ -9,22 +9,25 @@ def pushImages(testedImages, params) {
             def startTime = System.currentTimeMillis()
             def log = ""
             try {
-                echo "Pushing image: ${image}"
-                retry(3) {
-                    def pushResult = sh(
-                        script: "docker push ${image}",
-                        returnStatus: true,
-                        returnStdout: true
-                    )
-                    log += pushResult
-                    if (pushResult == 0) {
-                        successful.add(image)
-                        echo "✓ Successfully pushed image: ${image}"
-                    } else {
-                        failed.add(image)
-                        echo "✗ Error pushing image: ${image}"
-                        log += "\nError: Non-zero exit code from docker push"
-                        error("Push failed for ${image}")
+                def targetTags = getTargetTags(image, params)
+                targetTags.each { tag ->
+                    echo "Pushing image: ${tag}"
+                    retry(3) {
+                        def pushResult = sh(
+                            script: "docker push ${tag}",
+                            returnStatus: true,
+                            returnStdout: true
+                        )
+                        log += pushResult
+                        if (pushResult == 0) {
+                            successful.add(tag)
+                            echo "✓ Successfully pushed image: ${tag}"
+                        } else {
+                            failed.add(tag)
+                            echo "✗ Error pushing image: ${tag}"
+                            log += "\nError: Non-zero exit code from docker push"
+                            error("Push failed for ${tag}")
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -43,6 +46,10 @@ def pushImages(testedImages, params) {
         logs: logs,
         pushDurations: pushDurations
     ]
+}
+
+def getTargetTags(image, params) {
+    return [image]
 }
 
 return this

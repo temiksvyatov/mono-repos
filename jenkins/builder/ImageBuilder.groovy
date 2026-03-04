@@ -72,34 +72,11 @@ def executeBuildPlan(imagesByPriority, params, successful, failed, logs, imageDu
 }
 
 def getImageTag(imageName, versionData, imageData, params) {
-    def format = imageData.image_tag_format
+    def format = versionData.image_tag_format ?: imageData.image_tag_format ?: imageData.format
     if (!format) {
-        def registryUrl = params.REGISTRY_URL ?: 'https://docker-mf-middle-dev-local.nexign.com'
-        def registry = registryUrl.replaceFirst('^https?://', '')
-        def basePath = params.REGISTRY_NAMESPACE ?: 'microservices/infra'
-        def version = versionData.version
-        switch (imageName) {
-            case 'alpine':
-                return "${registry}/${basePath}/runtime/base/docker-base-alpine:latest"
-            case 'node':
-                return "${registry}/${basePath}/build/node/docker-node${version}-alpine:latest"
-            case 'nginx':
-                return "${registry}/${basePath}/runtime/nginx/docker-nginx-alpine:latest"
-            case 'python':
-                return "${registry}/${basePath}/build/python/docker-python${version}-ubi:latest"
-            case 'java/maven':
-                return "${registry}/${basePath}/build/java/docker-java${version}maven-alpine:latest"
-            case 'java/gradle':
-                return "${registry}/${basePath}/build/java/docker-java${version}gradle-alpine:latest"
-            case 'jre':
-                return "${registry}/${basePath}/runtime/java/docker-java${version}jre-alpine:latest"
-            case 'golang':
-                return "${registry}/${basePath}/build/golang/docker-golang-alpine:latest"
-            default:
-                return "${registry}/${basePath}/runtime/base/${imageName.replace('/', '-')}:latest"
-        }
+        error("No image tag format defined in versions.yaml for image ${imageName}")
     }
-    return format.replace('{version}', versionData.version)
+    return format.replace('{version}', "${versionData.version}")
 }
 
 def buildSingleImage(imageName, versionData, successful, failed, imageData, params) {

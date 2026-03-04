@@ -57,10 +57,25 @@ pipeline {
             defaultValue: '10',
             description: 'Maximum parallel build threads'
         )
+        string(
+            name: 'TARGET_PLATFORMS',
+            defaultValue: '',
+            description: 'Comma-separated list of target platforms for future multi-arch builds (e.g., linux/amd64,linux/arm64). Currently informational only.'
+        )
         booleanParam(
             name: 'GENERATE_AND_SEND_REPORT',
             defaultValue: true,
             description: 'Generate and send pipeline summary report'
+        )
+        booleanParam(
+            name: 'ENABLE_DOCKER_LINT',
+            defaultValue: false,
+            description: 'Run hadolint against generated Dockerfiles (requires hadolint to be available)'
+        )
+        booleanParam(
+            name: 'ENABLE_DOCKER_SCAN',
+            defaultValue: false,
+            description: 'Run trivy image scan for built images (requires trivy to be available)'
         )
     }
 
@@ -321,6 +336,25 @@ pipeline {
             }
         }
 
+        stage('Dockerfile Lint') {
+            when {
+                expression { params.ENABLE_DOCKER_LINT }
+            }
+            steps {
+                script {
+                    echo '=== Running Dockerfile lint (hadolint) ==='
+                    sh '''
+                        if command -v hadolint >/dev/null 2>&1; then
+                          find generated -name Dockerfile -print0 | xargs -0 -r hadolint
+                        else
+                          echo "hadolint not installed, skipping lint"
+                        fi
+                    '''
+                    echo '=== Dockerfile lint stage completed ==='
+                }
+            }
+        }
+
         stage('Smoke Tests') {
             options {
                 timeout(time: 20, unit: 'MINUTES')
@@ -373,6 +407,33 @@ pipeline {
                     }
                     echo "✓ Successfully pushed images: ${pushResult.successful.size()}"
                     echo '=== Image Pushing Completed ==='
+                }
+            }
+        }
+
+        stage('Image Security Scan') {
+            when {
+                expression { params.ENABLE_DOCKER_SCAN }
+            }
+            steps {
+                script {
+                    echo '=== Running image security scan (trivy) ==='
+                    def pushResult = PIPELINE_REPORT.push
+                    def imagesToScan = pushResult.successful ?: []
+                    if (imagesToScan.isEmpty()) {
+                        echo 'No images to scan'
+                    } else {
+                        imagesToScan.each { image ->
+                            sh """
+                                if command -v trivy >/dev/null 2>&1; then
+                                  trivy image --exit-code 0 --severity HIGH,CRITICAL ${image} || echo "trivy scan completed with non-zero exit code for ${image}"
+                                else
+                                  echo "trivy not installed, skipping scan for ${image}"
+                                fi
+                            """
+                        }
+                    }
+                    echo '=== Image security scan stage completed ==='
                 }
             }
         }

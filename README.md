@@ -38,6 +38,15 @@
   - **node**: Конфигурация для Node.js-образов.
   - **python**: Конфигурация для Python-образов.
 
+  Для каждого образа используется следующая структура:
+
+  - `images/<image>/config.yaml` — базовый конфиг образа.
+  - `images/<image>/Dockerfile.j2` — шаблон Dockerfile по умолчанию для образа.
+  - `images/<image>/<version>/config.yaml` — (опционально) per-version override конфига.
+  - `images/<image>/<version>/Dockerfile.j2` — (опционально) per-version шаблон Dockerfile.
+
+  Если per-version файлы существуют, они переопределяют базовые `config.yaml`/`Dockerfile.j2` для конкретной версии.
+
 - **jenkins**: Скрипты и конфигурации для Jenkins.
 
   - **builder**: Скрипты для сборки образов.
@@ -48,6 +57,10 @@
 - **generate_dockerfile.py**: Скрипт для генерации Dockerfile на основе шаблонов и конфигураций.
 
 - **versions.yaml**: Файл с версиями и базовыми образами для каждого типа образов.
+  - Для каждой категории/подкатегории (alpine, golang, node, python, nginx, java/maven, java/gradle, jre) задаются:
+    - `versions`: список версий с обязательными полями `version` и `base_image`.
+    - `format`: строка формата тега образа, содержащая плейсхолдер `{version}` (например, `docker-mf-middle-dev-local.nexign.com/microservices/infra/build/node/docker-node{version}-alpine:latest`).
+  - Jenkins-пайплайн использует эти значения напрямую через функцию `getImageTag` в `jenkins/builder/ImageBuilder.groovy`, YAML является единственным источником правды для схемы тегов.
 
 ## Конфигурация
 
@@ -58,17 +71,31 @@
 
 ### Конфигурации для конкретных образов
 
-Каждая директория в `images` содержит свои конфигурационные файлы и шаблоны Dockerfile. Например, для Go-образов используется `images/golang/Dockerfile.j2`.
+Каждая директория в `images` содержит свои конфигурационные файлы и шаблоны Dockerfile. Например:
+
+- Для Go-образов используется `images/golang/config.yaml` + `images/golang/Dockerfile.j2`.
+- Для Python-образов используется `images/python/config.yaml` + `images/python/Dockerfile.j2`, а также могут быть per-version overrides, например `images/python/314/Dockerfile.j2`.
 
 ## Использование
 
 ### Генерация Dockerfile
 
-Для генерации Dockerfile используется скрипт `generate_dockerfile.py`. Он принимает имя образа и данные версии, а затем генерирует Dockerfile на основе шаблонов и конфигураций.
+Для генерации Dockerfile используется скрипт `generate_dockerfile.py`. Он принимает имя образа и данные версии, а затем:
+
+- Собирает финальный конфиг как merge из:
+  - `common/config.yaml` (`default`),
+  - `images/<image>/config.yaml`,
+  - `images/<image>/<version>/config.yaml` (если существует),
+  - записи версии из `versions.yaml`.
+- Выбирает шаблон в следующем порядке:
+  - `images/<image>/<version>/Dockerfile.j2` (если существует),
+  - `images/<image>/Dockerfile.j2`,
+  - `common/templates/Dockerfile.common.j2` (fallback).
+- Генерирует Dockerfile в `generated/<image>/<version>/Dockerfile`.
 
 ### Сборка образов
 
-Сборка образов выполняется с помощью Jenkins. В `Jenkinsfile` определены этапы для валидации, генерации Dockerfile, сборки образов и их публикации.
+Сборка образов выполняется с помощью Jenkins. В `Jenkinsfile` определены этапы для валидации, генерации Dockerfile, сборки образов, smoke-тестов, публикации образов и (опционально) дополнительных проверок.
 
 ## Сборка образов
 
@@ -78,9 +105,15 @@
 
 - **BUILD_MODE**: Режим сборки (parallel или sequential).
 - **IMAGES_TO_BUILD**: Список образов для сборки (all или через запятую, например, alpine,golang,java/maven).
-- **REGISTRY_URL**: URL реестра Docker.
+- **REGISTRY_URL**: URL реестра Docker (используется для аутентификации при сборке/пуше).
+- **REGISTRY_NAMESPACE**: Базовый namespace в реестре (используется при авторизации и для обратной совместимости).
 - **REGISTRY_CREDENTIALS**: ID учетных данных для реестра Docker.
 - **BUILDER_IMAGE**: Образ для сборки Dockerfile.
+- **MAX_PARALLEL_THREADS**: Максимальное количество параллельных потоков сборки.
+- **TARGET_PLATFORMS**: (опционально) список целевых платформ для будущих multi-arch сборок (например, `linux/amd64,linux/arm64`).
+- **GENERATE_AND_SEND_REPORT**: Включение генерации и отправки итогового отчета.
+- **ENABLE_DOCKER_LINT**: (опционально) запуск `hadolint` для проверок сгенерированных Dockerfile.
+- **ENABLE_DOCKER_SCAN**: (опционально) запуск `trivy` для сканирования собранных образов.
 
 ## Отчеты
 
@@ -88,4 +121,8 @@
 
 ## Валидация
 
-Перед сборкой образов выполняется валидация конфигураций с помощью скриптов в `jenkins/validation`. Это включает проверку наличия обязательных секций в конф. файлах.
+Перед сборкой образов выполняется валидация конфигураций с помощью скриптов в `jenkins/validation`. Это включает:
+
+- Проверку наличия директорий и базовых файлов `config.yaml`/`Dockerfile.j2` для всех образов.
+- Проверку того, что каждая версия из `versions.yaml` имеет `base_image` и `version`.
+- Проверку per-version overrides: если существует директория `images/<image>/<version>/`, в ней должен быть хотя бы один из файлов `config.yaml` или `Dockerfile.j2`.

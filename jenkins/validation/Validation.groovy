@@ -40,6 +40,27 @@ def validateFileIntegrity(versionsYaml, imagesToBuild) {
                 }
             }
         }
+
+        if (imageData instanceof Map && imageData.versions instanceof List) {
+            imageData.versions.each { version ->
+                if (!version.base_image) {
+                    error("Missing base_image for ${image}")
+                }
+                if (!version.version) {
+                    error("Missing version for ${image}")
+                }
+
+                def versionDir = "images/${image.replace('/', File.separator)}/${version.version}"
+                if (fileExists(versionDir)) {
+                    def hasConfig = fileExists("${versionDir}/config.yaml")
+                    def hasTemplate = fileExists("${versionDir}/Dockerfile.j2")
+                    if (!hasConfig && !hasTemplate) {
+                        error("Version override directory ${versionDir} exists but has neither config.yaml nor Dockerfile.j2")
+                    }
+                    echo "✓ Validated per-version overrides in ${versionDir}"
+                }
+            }
+        }
     }
 
     def commonConfig
