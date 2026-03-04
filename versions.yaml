@@ -69,3 +69,4 @@ nginx:
   versions:
     - version: latest
       base_image: docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/docker-base-alpine:latest
+
