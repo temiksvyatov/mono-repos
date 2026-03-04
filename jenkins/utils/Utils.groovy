@@ -31,6 +31,10 @@ def getChangedImages(changedFiles) {
                         changedImages.add("${parts[1]}/${parts[2]}")
                     }
                 }
+                else if (parts.length >= 5 && parts[3].matches('^\\d+$') &&
+                        (parts[4] == 'Dockerfile.j2' || parts[4] == 'config.yaml')) {
+                    changedImages.add("${parts[1]}/${parts[2]}")
+                }
                 changedImages = changedImages.unique()
             }
         }
