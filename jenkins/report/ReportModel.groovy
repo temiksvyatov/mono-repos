@@ -22,7 +22,7 @@ def updateStage(report, String stageName, Map data) {
 }
 
 def syncEnv(report) {
-    env.PIPELINE_REPORT = writeJSON(returnText: true, json: report)
+    env.PIPELINE_REPORT = writeJSON returnText: true, json: report
 }
 
 def getStage(report, String stageName) {
