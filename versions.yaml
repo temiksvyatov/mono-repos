@@ -35,6 +35,7 @@ java:
     versions:
       - version: 17
         base_image: docker.nexign.com/gradle:jdk17-alpine
+        multi_registry: true
       - version: 21
         base_image: docker.nexign.com/gradle:jdk21-alpine
       - version: 25

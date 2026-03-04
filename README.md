@@ -59,7 +59,10 @@
 - **versions.yaml**: Файл с версиями и базовыми образами для каждого типа образов.
   - Для каждой категории/подкатегории (alpine, golang, node, python, nginx, java/maven, java/gradle, jre) задаются:
     - `versions`: список версий с обязательными полями `version` и `base_image`.
-    - `format`: строка формата тега образа, содержащая плейсхолдер `{version}` (например, `docker-mf-middle-dev-local.nexign.com/microservices/infra/build/node/docker-node{version}-alpine:latest`).
+    - `image_tag_format` (или устаревшее `format`): строка формата тега образа, содержащая плейсхолдер `{version}` (например, `docker-mf-middle-dev-local.nexign.com/microservices/infra/build/node/docker-node{version}-alpine:latest`).
+    - (опционально) per-version поля, например:
+      - `image_tag_format` — переопределение формата тега только для конкретной версии.
+      - `multi_registry: true` — флаг, что именно эта версия должна реплицироваться в дополнительные реестры.
   - Jenkins-пайплайн использует эти значения напрямую через функцию `getImageTag` в `jenkins/builder/ImageBuilder.groovy`, YAML является единственным источником правды для схемы тегов.
 
 ## Конфигурация
@@ -114,6 +117,7 @@
 - **GENERATE_AND_SEND_REPORT**: Включение генерации и отправки итогового отчета.
 - **ENABLE_DOCKER_LINT**: (опционально) запуск `hadolint` для проверок сгенерированных Dockerfile.
 - **ENABLE_DOCKER_SCAN**: (опционально) запуск `trivy` для сканирования собранных образов.
+- **EXTRA_REGISTRIES**: (опционально) список дополнительных реестров (через запятую), в которые нужно реплицировать образы после пуша в основной реестр.
 
 ## Отчеты
 
@@ -126,3 +130,26 @@
 - Проверку наличия директорий и базовых файлов `config.yaml`/`Dockerfile.j2` для всех образов.
 - Проверку того, что каждая версия из `versions.yaml` имеет `base_image` и `version`.
 - Проверку per-version overrides: если существует директория `images/<image>/<version>/`, в ней должен быть хотя бы один из файлов `config.yaml` или `Dockerfile.j2`.
+
+## Multi-registry репликация образов
+
+После успешной сборки и smoke-тестов стадия `Push Images to Registry`:
+
+- Пушит каждый образ в основной реестр в соответствии с `image_tag_format` из `versions.yaml` (через обычный `docker push`).
+- Если задан параметр `EXTRA_REGISTRIES`, дополнительно реплицирует образы в указанные реестры.
+
+Формат параметра `EXTRA_REGISTRIES`:
+
+- Строка вида: `registry1.example.com,registry2.example.com`.
+- Для каждого успешно запушенного базового тега `<registry>/<path>:<tag>` формируются дополнительные теги:
+  - `<registry1.example.com>/<path>:<tag>`
+  - `<registry2.example.com>/<path>:<tag>`
+
+Репликация выполняется командой:
+
+- `docker buildx imagetools create -t <extraTag> <baseTag>`
+
+Таким образом:
+
+- **Имена тегов всегда соответствуют фактическим реестрам**, в которые они пушатся.
+- Используется уровень манифестов (`imagetools`), что хорошо сочетается с будущими multi-arch сборками.

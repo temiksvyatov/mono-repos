@@ -77,6 +77,11 @@ pipeline {
             defaultValue: false,
             description: 'Run trivy image scan for built images (requires trivy to be available)'
         )
+        string(
+            name: 'EXTRA_REGISTRIES',
+            defaultValue: 'docker-mf-middle-rc-local.nexign.com',
+            description: 'Comma-separated list of additional registries to replicate images to (same path and tag).'
+        )
     }
 
     stages {
