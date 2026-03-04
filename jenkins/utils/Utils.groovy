@@ -23,7 +23,13 @@ def getChangedImages(changedFiles) {
                 }
                 // Подмодуль, например, images/java/maven/Dockerfile.j2
                 else if (parts.length == 4 && (parts[3] == 'Dockerfile.j2' || parts[3] == 'config.yaml')) {
-                    changedImages.add("${parts[1]}/${parts[2]}")
+                    // Если это per-version директория вида images/node/22/config.yaml,
+                    // считаем, что изменился базовый образ node, а не отдельный image id node/22
+                    if (parts[2].matches('^\\d+$')) {
+                        changedImages.add(parts[1])
+                    } else {
+                        changedImages.add("${parts[1]}/${parts[2]}")
+                    }
                 }
                 changedImages = changedImages.unique()
             }
