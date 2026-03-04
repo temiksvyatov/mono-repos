@@ -134,13 +134,12 @@ def buildSingleImage(imageName, versionData, successful, failed, imageData, para
             error("Dockerfile not found at: ${dockerfilePath}")
         }
         echo "Building image: ${imageTag}"
-        def buildResult = sh(
+        def buildStatus = sh(
             script: "docker build --no-cache --pull --progress=plain -t ${imageTag} -f ${dockerfilePath} .",
-            returnStatus: true,
-            returnStdout: true
+            returnStatus: true
         )
-        log = buildResult
-        if (buildResult == 0) {
+        log = "docker build exit code: ${buildStatus}"
+        if (buildStatus == 0) {
             successful.add(imageTag)
             echo "✓ Successfully built image: ${imageTag}"
         } else {

@@ -9,16 +9,15 @@ def generateDockerfiles(imagesToBuild) {
         def log = ""
         try {
             echo "Generating Dockerfile for ${image}"
-            def result = sh(
+            def status = sh(
                 script: """
                     source venv/bin/activate
                     python3 jenkins/dockerfile/generate_dockerfile.py '${image}'
                 """,
-                returnStatus: true,
-                returnStdout: true
+                returnStatus: true
             )
-            log = result
-            if (result == 0) {
+            log = "generate_dockerfile.py exit code: ${status}"
+            if (status == 0) {
                 successful.add(image)
                 echo "✓ Successfully generated Dockerfile for ${image}"
                 def versionsData = readJSON text: env.VERSIONS_DATA
