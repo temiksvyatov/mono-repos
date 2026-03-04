@@ -20,6 +20,16 @@ def buildImages(versionsData, imagesToBuild, params) {
 
 def groupImagesByPriority(versionsData, imagesToBuild) {
     def imagesByPriority = [:]
+    def changedVersions = [:]
+
+    if (env.CHANGED_VERSIONS) {
+        try {
+            changedVersions = readJSON text: env.CHANGED_VERSIONS
+        } catch (Exception e) {
+            echo "WARNING: Failed to parse CHANGED_VERSIONS from env: ${e.message}"
+            changedVersions = [:]
+        }
+    }
 
     imagesToBuild.each { image ->
         def imageParts = image.split('/')
@@ -30,7 +40,14 @@ def groupImagesByPriority(versionsData, imagesToBuild) {
         if (!imageData?.versions) {
             error("No versions found for image ${image} in versions.yaml")
         }
-        imageData.versions.each { version ->
+        def versionsForImage = imageData.versions
+        def changedForImage = changedVersions[image]
+        if (changedForImage instanceof List && !changedForImage.isEmpty()) {
+            versionsForImage = versionsForImage.findAll { v ->
+                changedForImage.contains("${v.version}")
+            }
+        }
+        versionsForImage.each { version ->
             def priority = version.priority ?: 1000
             if (!imagesByPriority[priority]) {
                 imagesByPriority[priority] = []
@@ -71,17 +88,44 @@ def executeBuildPlan(imagesByPriority, params, successful, failed, logs, imageDu
     }
 }
 
-def getImageTag(imageName, versionData, imageData, params) {
+def getImageTags(imageName, versionData, imageData, params) {
     def format = versionData.image_tag_format ?: imageData.image_tag_format ?: imageData.format
     if (!format) {
         error("No image tag format defined in versions.yaml for image ${imageName}")
     }
-    return format.replace('{version}', "${versionData.version}")
+
+    def baseTag = format.replace('{version}', "${versionData.version}")
+    def tags = [baseTag]
+
+    def extraTagFormats = []
+    if (imageData.extra_tags instanceof List) {
+        extraTagFormats.addAll(imageData.extra_tags)
+    }
+    if (versionData.extra_tags instanceof List) {
+        extraTagFormats.addAll(versionData.extra_tags)
+    }
+
+    extraTagFormats.each { extraFormat ->
+        if (extraFormat) {
+            def extraTag = extraFormat.replace('{version}', "${versionData.version}")
+            if (extraTag && !tags.contains(extraTag)) {
+                tags.add(extraTag)
+            }
+        }
+    }
+
+    return tags
+}
+
+def getImageTag(imageName, versionData, imageData, params) {
+    def tags = getImageTags(imageName, versionData, imageData, params)
+    return tags[0]
 }
 
 def buildSingleImage(imageName, versionData, successful, failed, imageData, params) {
     def startTime = System.currentTimeMillis()
-    def imageTag = getImageTag(imageName, versionData, imageData, params)
+    def imageTags = getImageTags(imageName, versionData, imageData, params)
+    def imageTag = imageTags[0]
     def log = ""
     try {
         def dockerfilePath = "generated/${imageName}/${versionData.version}/Dockerfile"

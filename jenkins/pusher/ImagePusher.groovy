@@ -82,11 +82,30 @@ def pushImages(testedImages, params) {
 
 def getTargetTags(image, params) {
     def tags = [image]
-    def extraRegistriesRaw = params.EXTRA_REGISTRIES ?: ''
-    if (!extraRegistriesRaw?.trim()) {
-        return tags
+    def versionsData
+    def changedTags = []
+
+    if (env.VERSIONS_DATA) {
+        try {
+            versionsData = readJSON text: env.VERSIONS_DATA
+        } catch (Exception e) {
+            echo "WARNING: Failed to parse VERSIONS_DATA in getTargetTags: ${e.message}"
+        }
     }
 
+    def configMatch = versionsData ? resolveImageConfigForTag(image, versionsData) : null
+
+    if (configMatch) {
+        def imageName = configMatch.imageName
+        def versionData = configMatch.versionData
+        def imageData = configMatch.imageData
+        def allTags = computeImageTagsForPusher(imageName, versionData, imageData)
+        if (!allTags.isEmpty()) {
+            tags = allTags
+        }
+    }
+
+    def extraRegistriesRaw = params.EXTRA_REGISTRIES ?: ''
     def extraRegistries = extraRegistriesRaw
         .split(',')
         .collect { it.trim() }
@@ -96,23 +115,23 @@ def getTargetTags(image, params) {
         return tags
     }
 
-    if (!shouldReplicateImage(image)) {
+    def multiRegistryEnabled = configMatch ? configMatch.multiRegistry : shouldReplicateImage(image)
+    if (!multiRegistryEnabled) {
         return tags
     }
 
-    // image имеет вид <registry>/<path>:<tag>
-    def imageParts = image.split('/', 2)
-    if (imageParts.length != 2) {
-        echo "WARNING: Unable to parse image '${image}' for multi-registry replication, expected '<registry>/<path>:<tag>'"
-        return tags
+    def registryExpandedTags = tags.collectMany { tag ->
+        def parts = tag.split('/', 2)
+        if (parts.length != 2) {
+            echo "WARNING: Unable to parse tag '${tag}' for multi-registry replication, expected '<registry>/<path>:<tag>'"
+            return [tag]
+        }
+        def pathAndTag = parts[1]
+        def replicated = extraRegistries.collect { reg -> "${reg}/${pathAndTag}" }
+        return [tag] + replicated
     }
-    def pathAndTag = imageParts[1]
 
-    extraRegistries.each { reg ->
-        tags.add("${reg}/${pathAndTag}")
-    }
-
-    return tags
+    return registryExpandedTags.unique()
 }
 
 def shouldReplicateImage(image) {
@@ -122,23 +141,9 @@ def shouldReplicateImage(image) {
             return false
         }
         def versionsData = readJSON text: env.VERSIONS_DATA
-
-        // Обход верхнего уровня (alpine, golang, node, python, nginx, jre)
-        versionsData.each { key, value ->
-            if (value instanceof Map && value.versions instanceof List) {
-                if (isMultiRegistryMatch(image, value, key)) {
-                    return true
-                }
-            } else if (value instanceof Map) {
-                // Подкатегории, например java/maven, java/gradle
-                value.each { subKey, subValue ->
-                    if (subValue instanceof Map && subValue.versions instanceof List) {
-                        if (isMultiRegistryMatch(image, subValue, "${key}/${subKey}")) {
-                            return true
-                        }
-                    }
-                }
-            }
+        def match = resolveImageConfigForTag(image, versionsData)
+        if (match && match.multiRegistry) {
+            return true
         }
     } catch (Exception e) {
         echo "WARNING: Failed to determine multi-registry flag for image ${image}: ${e.message}"
@@ -146,19 +151,90 @@ def shouldReplicateImage(image) {
     return false
 }
 
-def isMultiRegistryMatch(image, imageData, imageName) {
-    imageData.versions.each { version ->
-        def format = version.image_tag_format ?: imageData.image_tag_format ?: imageData.format
-        if (!format) {
-            return
-        }
-        def candidate = format.replace('{version}', "${version.version}")
-        if (candidate == image && version.multi_registry) {
-            echo "Image ${imageName}:${version.version} is marked as multi_registry in versions.yaml"
-            return true
+def resolveImageConfigForTag(image, versionsData) {
+    def result = null
+
+    versionsData.each { key, value ->
+        if (value instanceof Map && value.versions instanceof List) {
+            value.versions.each { version ->
+                def format = version.image_tag_format ?: value.image_tag_format ?: value.format
+                if (!format) {
+                    return
+                }
+                def candidate = format.replace('{version}', "${version.version}")
+                if (candidate == image) {
+                    def effectiveMultiRegistry = version.containsKey('multi_registry')
+                        ? version.multi_registry
+                        : (value.containsKey('multi_registry') ? value.multi_registry : false)
+                    result = [
+                        imageName     : key,
+                        versionData   : version,
+                        imageData     : value,
+                        multiRegistry : effectiveMultiRegistry
+                    ]
+                    return
+                }
+            }
+        } else if (value instanceof Map) {
+            value.each { subKey, subValue ->
+                if (subValue instanceof Map && subValue.versions instanceof List) {
+                    subValue.versions.each { version ->
+                        def format = version.image_tag_format ?: subValue.image_tag_format ?: subValue.format
+                        if (!format) {
+                            return
+                        }
+                        def candidate = format.replace('{version}', "${version.version}")
+                        if (candidate == image) {
+                            def effectiveMultiRegistry = version.containsKey('multi_registry')
+                                ? version.multi_registry
+                                : (subValue.containsKey('multi_registry')
+                                    ? subValue.multi_registry
+                                    : (value.containsKey('multi_registry') ? value.multi_registry : false))
+                            result = [
+                                imageName     : "${key}/${subKey}",
+                                versionData   : version,
+                                imageData     : subValue,
+                                multiRegistry : effectiveMultiRegistry
+                            ]
+                            return
+                        }
+                    }
+                }
+            }
         }
     }
-    return false
+
+    return result
+}
+
+def computeImageTagsForPusher(imageName, versionData, imageData) {
+    def format = versionData.image_tag_format ?: imageData.image_tag_format ?: imageData.format
+    if (!format) {
+        echo "WARNING: No image tag format defined in versions.yaml for image ${imageName}"
+        return [ ]
+    }
+
+    def baseTag = format.replace('{version}', "${versionData.version}")
+    def tags = [baseTag]
+
+    def extraTagFormats = []
+    if (imageData.extra_tags instanceof List) {
+        extraTagFormats.addAll(imageData.extra_tags)
+    }
+    if (versionData.extra_tags instanceof List) {
+        extraTagFormats.addAll(versionData.extra_tags)
+    }
+
+    extraTagFormats.each { extraFormat ->
+        if (extraFormat) {
+            def extraTag = extraFormat.replace('{version}', "${versionData.version}")
+            if (extraTag && !tags.contains(extraTag)) {
+                tags.add(extraTag)
+            }
+        }
+    }
+
+    return tags
 }
 
 return this

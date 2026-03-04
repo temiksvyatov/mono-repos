@@ -1,6 +1,7 @@
 import yaml
 import os
 import sys
+import json
 from jinja2 import Environment, FileSystemLoader
 
 def generate_dockerfile(image_name, version_data, common_config, env):
@@ -57,7 +58,21 @@ if __name__ == "__main__":
         print(f"Ошибка: нет версий для образа {image_name}")
         sys.exit(1)
 
+    changed_versions_raw = os.environ.get("CHANGED_VERSIONS")
+    changed_versions = {}
+    if changed_versions_raw:
+        try:
+            changed_versions = json.loads(changed_versions_raw)
+        except Exception as e:
+            print(f"WARNING: failed to parse CHANGED_VERSIONS: {e}")
+            changed_versions = {}
+
+    allowed_versions = changed_versions.get(image_name)
+
     for version_data in versions:
+        if isinstance(allowed_versions, list) and allowed_versions:
+            if str(version_data.get('version')) not in [str(v) for v in allowed_versions]:
+                continue
         dockerfile_content = generate_dockerfile(image_name, version_data, common_config, env)
         version_dir = f"generated/{image_name}/{version_data['version']}"
         os.makedirs(version_dir, exist_ok=True)

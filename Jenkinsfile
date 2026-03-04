@@ -169,6 +169,8 @@ pipeline {
 
                             def changedFiles = utils.getChangedFiles()
                             def changedImages = utils.getChangedImages(changedFiles)
+                            def changedVersions = utils.getChangedVersions(changedFiles)
+                            env.CHANGED_VERSIONS = writeJSON returnText: true, json: changedVersions
                             def imagesToBuild = utils.determineImagesToBuild(versionsYaml, changedImages, params.IMAGES_TO_BUILD)
 
                             // Валидация списка imagesToBuild

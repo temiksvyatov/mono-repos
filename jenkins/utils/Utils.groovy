@@ -38,6 +38,33 @@ def getChangedImages(changedFiles) {
     return changedImages
 }
 
+def getChangedVersions(changedFiles) {
+    def changedVersions = [:]
+    changedFiles.each { file ->
+        if (file.startsWith('images/')) {
+            def parts = file.split('/')
+            if (parts.length >= 4 && (parts[3] == 'Dockerfile.j2' || parts[3] == 'config.yaml') && parts[2].matches('^\\d+$')) {
+                // images/<image>/<version>/file
+                def imageName = parts[1]
+                def version = parts[2]
+                if (!changedVersions[imageName]) {
+                    changedVersions[imageName] = []
+                }
+                changedVersions[imageName] = (changedVersions[imageName] + version).unique()
+            } else if (parts.length >= 5 && (parts[4] == 'Dockerfile.j2' || parts[4] == 'config.yaml') && parts[3].matches('^\\d+$')) {
+                // images/<image>/<sub>/<version>/file  (например, java/maven/17)
+                def imageName = "${parts[1]}/${parts[2]}"
+                def version = parts[3]
+                if (!changedVersions[imageName]) {
+                    changedVersions[imageName] = []
+                }
+                changedVersions[imageName] = (changedVersions[imageName] + version).unique()
+            }
+        }
+    }
+    return changedVersions
+}
+
 def determineImagesToBuild(versionsYaml, changedImages, imagesToBuildParam) {
     def imagesToBuild = []
 
