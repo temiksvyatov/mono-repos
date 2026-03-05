@@ -148,6 +148,7 @@ print(f'Syntax validation passed for {len(images)} image(s)')
     def validationStatus = sh(
         script: """
             source venv/bin/activate 2>/dev/null || true
+            pip3 install PyYAML jinja2
             python3 -c "${validationScript.replace('"', '\\"')}" ${imageArgs}
         """,
         returnStatus: true
