@@ -1,0 +1,18 @@
+# CODEOWNERS — Require review from designated owners before merging.
+# Changes to pipeline scripts affect production image builds immediately.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: all changes require review from the platform team
+*                           @platform-team
+
+# Pipeline core — changes affect all image builds
+Jenkinsfile                 @platform-team @ci-leads
+jenkins/                    @platform-team @ci-leads
+
+# Image definitions — changes may affect running services
+images/                     @platform-team @image-owners
+versions.yaml               @platform-team @image-owners
+
+# Security-sensitive files
+common/files/certs/         @platform-team @security-team
+images/python/Dockerfile.j2 @platform-team @security-team

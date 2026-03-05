@@ -1,0 +1,37 @@
+# Pre-commit hooks for this repository.
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--unsafe]  # needed for Jinja2 {{ }} in YAML comments
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        files: ^jenkins/.*\.py$
+
+  - repo: local
+    hooks:
+      - id: pytest-generate-dockerfile
+        name: pytest generate_dockerfile
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" && pip install -q -r jenkins/dockerfile/requirements-test.txt && pytest jenkins/dockerfile/test_generate_dockerfile.py -q'
+        language: system
+        pass_filenames: false
+        files: ^jenkins/dockerfile/
+
+      - id: hadolint-generated
+        name: hadolint Dockerfile templates (j2 syntax check only)
+        entry: bash -c 'find images -name "*.j2" | head -1 | xargs -I{} python3 -c "from jinja2 import Environment, FileSystemLoader; env = Environment(loader=FileSystemLoader([\".\",\"common/templates\"])); env.get_template(\"{}\"); print(\"Jinja2 syntax OK: {}\")"'
+        language: system
+        pass_filenames: false
+        files: ^images/.*\.j2$

@@ -1,0 +1,389 @@
+---
+description: Exhaustive technical audit ruleset for the Docker base-image monorepo CI/CD pipeline. Apply to ALL files unless scoped otherwise.
+globs: ["**/*.groovy", "**/*.py", "**/*.yaml", "**/*.yml", "**/*.j2", "**/Dockerfile*", "**/*.sh", "**/*.conf", "**/*.md"]
+alwaysApply: true
+---
+
+# ============================================================
+# AUDIT RULESET — Docker Base Image Monorepo
+# Format: [SEVERITY] <Domain>: <Finding> — <Recommendation>
+# Severity levels: CRITICAL | HIGH | MEDIUM | LOW
+# ============================================================
+
+## META-INSTRUCTION
+When invoked, perform a systematic pass over every file in the repository.
+For each check below, output exactly one of:
+  - `[<SEVERITY>] <Domain>: <finding> — <recommendation>`
+  - `[PASS] <Domain>: <check description>`
+Never skip a check. Group output by domain. After all domains, output a
+"SUMMARY" block with counts per severity and a prioritized remediation list.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 1 — CODE QUALITY & MAINTAINABILITY
+# ══════════════════════════════════════════════════════════════
+
+## 1.1 Groovy Scripts — Dead Code & Duplication
+- Scan all `jenkins/**/*.groovy` files.
+- Flag any function defined but never called from `Jenkinsfile` or another `.groovy` file.
+- Flag copy-pasted blocks of 10+ identical lines across files (e.g., `computeImageTagsForPusher` vs `getImageTags` — near-duplicate logic in `ImageBuilder.groovy` and `ImagePusher.groovy`).
+- Quick win: grep for `def get.*Tag` across all `.groovy` files; if >1 variant exists doing the same substitution, it is a duplication finding.
+- Output format: `[MEDIUM] Code Quality: Duplicate tag-resolution logic in <file1> and <file2> — Extract to shared utility in Utils.groovy`
+
+## 1.2 Python Script — Style & Complexity
+- Check `jenkins/dockerfile/generate_dockerfile.py` and any other `.py` files.
+- Flag functions longer than 40 lines.
+- Flag mixed Russian/English comments (inconsistent language).
+- Flag use of bare `except Exception as e` without re-raise or structured logging.
+- Flag string concatenation inside loops instead of list joins.
+- Quick win: count `except` clauses — every one that only does `print(...)` is a finding.
+
+## 1.3 Jinja2 Templates — Logic Complexity
+- Scan all `**/*.j2` files.
+- Flag business logic embedded in templates (conditionals beyond simple variable substitution).
+- Flag templates that `extend` more than 2 levels deep.
+- Flag any template that renders differently depending on mutable global state.
+- Check `common/templates/Dockerfile.common.j2`: the `{% block package_installation %}` has inline conditionals for package managers — flag as logic-in-template anti-pattern.
+
+## 1.4 YAML Consistency
+- Scan `versions.yaml` and all `config.yaml` files.
+- Flag fields that appear in some version entries but not others without a documented default (e.g., `multi_registry`, `extra_tags`, `image_tag_format` at version level).
+- Flag any YAML file lacking a top-level schema comment.
+- Flag version strings that are integers in YAML but treated as strings in Groovy (`version: 16` → coercion risk).
+
+## 1.5 Naming Conventions
+- Flag Groovy functions using `camelCase` inconsistently (e.g., `buildSingleImage` vs `runSmokeTestForImage`).
+- Flag pipeline stage names that don't match the function they call.
+- Flag environment variable names that mix `SCREAMING_SNAKE` with others.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 2 — ARCHITECTURE & DESIGN PATTERNS
+# ══════════════════════════════════════════════════════════════
+
+## 2.1 Single Responsibility
+- Each `jenkins/**/*.groovy` file should expose one cohesive responsibility.
+- Flag `ImagePusher.groovy`: it resolves tags, decides multi-registry strategy, AND pushes — three responsibilities.
+- Flag `DockerfileGenerator.groovy`: it generates AND reads/prints generated content — output concern mixed with generation.
+
+## 2.2 Configuration as Code — Single Source of Truth
+- `versions.yaml` is declared as the single source of truth. Verify no tag format logic is hardcoded elsewhere.
+- Grep for hardcoded registry hostnames (e.g., `nexign.com`, `docker-mf-middle`) in `.groovy` files outside of parameter defaults.
+- Flag any hostname that appears in both `versions.yaml` AND hardcoded in Groovy/Python.
+
+## 2.3 Pipeline Stage Coupling
+- Check `Jenkinsfile`: each stage reads results from `PIPELINE_REPORT` which is serialized to `env.*` (string JSON). Flag this as a fragile coupling pattern — large maps serialized to env vars have undocumented size limits in Jenkins.
+- Flag the pattern `PIPELINE_REPORT = reportModel.updateStage(...)` followed immediately by `reportModel.syncEnv(PIPELINE_REPORT)` — this is repeated in every stage; flag as missing abstraction (should be a single `updateAndSync` call).
+
+## 2.4 Builder Image as Runtime Dependency
+- The `Generate Dockerfiles` stage installs Python deps (`pip install jinja2 PyYAML`) at runtime inside the builder image. Flag as architecture smell — dependencies should be baked into the builder image, not installed per-run.
+- Check if `BUILDER_IMAGE` Dockerfile is present in this repo; if not, flag as undocumented external dependency.
+
+## 2.5 Template Inheritance Depth
+- Map the full inheritance chain of every `Dockerfile.j2`. Flag any chain deeper than 3 levels.
+- Flag `images/java/maven/17/Dockerfile.j2` which extends `images/java/maven/Dockerfile.j2` but adds no content — this is a no-op override; flag as unnecessary file.
+
+## 2.6 Error Propagation Strategy
+- Flag that `buildImages`, `runSmokeTests`, and `pushImages` return result maps but the Jenkinsfile checks `failed.size() > 0` for `unstable()` while `successful.size() == 0` triggers `error()`. Verify this asymmetry is intentional and documented; if not, flag as design inconsistency.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 3 — SECURITY & VULNERABILITY SURFACE
+# ══════════════════════════════════════════════════════════════
+
+## 3.1 Secret Handling — CRITICAL
+- Grep all `.groovy`, `.py`, `.yaml`, `.j2` files for patterns: `password`, `token`, `secret`, `key`, `credential`, `api[_-]?key`, `auth`.
+- Flag any secret value that appears as a literal string (not a Jenkins credential reference or `--mount=type=secret`).
+- Check `images/python/Dockerfile.j2`: `--mount=type=secret,id=tok` — verify `tok` is never echoed or logged. Flag the `curl` command that uses `$(cat /run/secrets/tok)` in the RUN instruction: if BuildKit cache is not properly scoped, the secret layer can be cached. Flag as HIGH.
+- Flag `common/files/pip.conf`: contains `extra-index-url` pointing to Artifactory. Verify no credentials are embedded in the URL.
+
+## 3.2 Credential Injection via Parameters — HIGH
+- `REGISTRY_CREDENTIALS` is a Jenkins parameter string with a default value of `registry-user-password`. Flag: pipeline parameters are logged by default in Jenkins; credential IDs should not be parameters but pipeline-level constants or loaded from a credentials store.
+- Flag that `REGISTRY_URL` and `REGISTRY_NAMESPACE` are also parameters — an operator could redirect pushes to an attacker-controlled registry by manipulating build parameters.
+
+## 3.3 Shell Injection
+- Scan all `sh(script: ...)` calls in `.groovy` files.
+- Flag any `sh` call where a variable interpolated into the script string originates from user-controlled input (pipeline parameters, `env.*`, or external YAML).
+- Specifically flag in `ImageBuilder.groovy`: `docker build ... -t ${imageTag} -f ${dockerfilePath} .` — `imageTag` derives from `versions.yaml` which is repo-controlled, but `dockerfilePath` uses string concatenation. Classify as MEDIUM (repo-controlled) but flag the pattern.
+- Flag in `SmokeTests.groovy`: `docker run --rm ${image}` — `image` comes from the build result list; confirm no untrusted input reaches this path.
+
+## 3.4 Supply Chain — Base Image Pinning — HIGH
+- Scan `versions.yaml`: flag every `base_image` that uses a mutable tag (`:latest`, `:jdk17-alpine` without digest).
+- Require SHA256 digest pinning for all base images in production pipelines.
+- Example finding: `base_image: docker.nexign.com/alpine:latest` — mutable tag, reproducibility not guaranteed.
+
+## 3.5 Certificate Management
+- Scan `common/files/certs/`: list all certificates and check expiry dates embedded in the PEM files (look for `XDT` fields in base64 decoded content).
+- Flag any certificate expiring within 90 days.
+- Flag that certificates are committed to the repository — this is acceptable for CA certs but must be documented as intentional. Verify no private keys or leaf certificates with private keys are present.
+- Grep for `BEGIN PRIVATE KEY`, `BEGIN RSA PRIVATE KEY`, `BEGIN EC PRIVATE KEY` in the entire repo.
+
+## 3.6 Docker Build Flags — MEDIUM
+- Flag `docker build --no-cache --pull`: `--pull` always pulls the base image — verify this is intentional (it is good for freshness but increases build time and external dependency).
+- Flag absence of `--platform` flag — builds are implicitly platform-specific; document or enforce the target platform.
+- Flag absence of `--build-arg` for any value that varies between environments if applicable.
+
+## 3.7 Trivy / Hadolint Integration — MEDIUM
+- `ENABLE_DOCKER_LINT` and `ENABLE_DOCKER_SCAN` default to `false`. Flag: security scanning is opt-in, not opt-out. This means production pipelines may ship unscanned images.
+- Recommendation: invert defaults or add a mandatory gate that fails the pipeline unless explicitly bypassed with a documented justification parameter.
+
+## 3.8 Registry Authentication Scope
+- `docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS)` wraps build AND push stages. Verify that the credential is scoped to the minimum required registries. Flag if a single credential is used to authenticate to multiple distinct registries (REGISTRY_URL vs EXTRA_REGISTRIES).
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 4 — PERFORMANCE & SCALABILITY
+# ══════════════════════════════════════════════════════════════
+
+## 4.1 Parallel Build Efficiency
+- In `ImageBuilder.groovy`, `imagesInPriority.collate(maxThreads)` batches images into groups of `MAX_PARALLEL_THREADS`. Flag: within a group all run in parallel, but groups run sequentially. If one image in a group is slow, it blocks the entire next group. Flag as suboptimal batching strategy — recommend a work-queue model instead.
+
+## 4.2 pip Install at Runtime — HIGH
+- `Generate Dockerfiles` stage runs `pip install --upgrade pip && pip install jinja2 PyYAML` on every pipeline execution. This is a network call with no caching, adding latency and a failure point. Flag as performance and reliability issue — bake deps into `BUILDER_IMAGE`.
+
+## 4.3 Groovy readJSON / writeJSON Overhead
+- `reportModel.syncEnv(PIPELINE_REPORT)` serializes the entire pipeline report map to an env variable after every stage update. As the report grows (many images, long logs), this JSON string can become large. Flag: Jenkins env vars stored in the controller process memory; very large values (>1MB) cause performance degradation.
+- Flag that build logs are stored inline in `PIPELINE_REPORT` — this is the primary driver of size growth.
+
+## 4.4 Docker Layer Cache Invalidation
+- `docker build --no-cache` is used unconditionally. Flag: this disables all layer caching, making every build from scratch. For large images (Python UBI builds compiling from source), this is extremely expensive. Flag as HIGH performance issue — `--no-cache` should be a parameter, defaulting to cache-enabled.
+
+## 4.5 Sequential Script Loading
+- `Load Scripts` stage uses `parallel scriptLoads` — good. Verify the parallel map in `Jenkinsfile` actually executes concurrently; flag if any of the load closures have sequential dependencies that would serialize execution.
+
+## 4.6 Smoke Test Timeout
+- All smoke tests use `timeout 30` seconds. Flag: Python image smoke tests that run `pip list` inside the container may exceed 30s on cold starts with large images. Recommend per-image-type timeout configuration.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 5 — DEPENDENCY & SUPPLY CHAIN RISK
+# ══════════════════════════════════════════════════════════════
+
+## 5.1 Python Dependencies — No Version Pinning — HIGH
+- `pip install jinja2 PyYAML` in the pipeline has no version constraints. Flag: unpinned dependencies introduce silent breaking changes.
+- Recommendation: pin to exact versions (`jinja2==3.1.4 PyYAML==6.0.1`) and commit a `requirements.txt`.
+
+## 5.2 External Script Execution — CRITICAL
+- In `images/python/Dockerfile.j2`: `curl http://repo.nexign.com/scripts/add-ubi9-repo.sh | sh` — this pattern executes a remotely fetched script directly. If the remote server is compromised or the URL is MITMed, arbitrary code runs as root inside the build. Flag as CRITICAL.
+- Same for `add-elrepo-repo.sh`. Both use `http://` (not HTTPS). Flag separately as CRITICAL (plaintext download of executed code).
+
+## 5.3 Artifactory as Single Point of Failure
+- All package sources (apk, pip, go, npm implied) route through `artifactory.nexign.com`. This is good for supply chain control but means the entire build pipeline fails if Artifactory is unreachable. Flag: no fallback or mirror configured. Verify retry logic exists at the Artifactory proxy level.
+
+## 5.4 Base Image Source Registry
+- `docker.nexign.com` is used as the source for all base images. Verify this is an internal mirror/proxy of Docker Hub, not a direct pull from Docker Hub. If it's a proxy, document the sync policy. If images are not mirrored and pulled directly, flag supply chain risk.
+
+## 5.5 `docker buildx imagetools` Dependency
+- `ImagePusher.groovy` uses `docker buildx imagetools create` for multi-registry replication. Flag: this requires BuildKit and `docker buildx` to be installed and configured on the Jenkins agent. Absence of explicit agent capability verification is a hidden dependency.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 6 — TEST COVERAGE & QUALITY
+# ══════════════════════════════════════════════════════════════
+
+## 6.1 No Unit Tests for Groovy Scripts — HIGH
+- Scan for `*Test.groovy`, `*Spec.groovy`, or any test framework (JenkinsPipelineUnit, Spock). If absent, flag: zero automated test coverage for all pipeline logic.
+- All business logic (tag resolution, multi-registry decision, changed-files detection) is untested.
+
+## 6.2 No Unit Tests for Python Script — HIGH
+- Scan for `test_*.py`, `*_test.py`, `pytest.ini`, `setup.cfg` with `[tool:pytest]`. If absent, flag: `generate_dockerfile.py` has no tests despite containing non-trivial config-merging and template-selection logic.
+
+## 6.3 Smoke Test Quality
+- Review `SmokeTests.groovy`: `runSmokeTestForImage` parses image type from `imageParts[0].split('/')[3].split('-')[0]`. Flag: this string parsing is brittle — any registry path change breaks image type detection. Flag as HIGH brittleness.
+- Flag that `testPythonImage` checks `sys.version` but does NOT verify the expected Python version matches `versions.yaml`. The test would pass on the wrong Python version.
+- Flag that `testJavaImage` uses `javac -version 2>&1 || echo 'javac not available'` — suppressing the error means the test passes on JRE-only images where `javac` absence is unexpected for `java/maven` images.
+
+## 6.4 No Integration / E2E Tests
+- Flag absence of end-to-end tests that exercise the full generate→build→test→push cycle against a test registry.
+
+## 6.5 Validation Coverage Gap
+- `Validation.groovy:validateImageDirectories` checks for `Dockerfile.j2` and `config.yaml` existence but does NOT validate YAML syntax or Jinja2 template syntax. Flag: a malformed template will only fail at generation time, not at validation time.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 7 — ERROR HANDLING & OBSERVABILITY
+# ══════════════════════════════════════════════════════════════
+
+## 7.1 Silent Failures in Groovy — HIGH
+- Scan all `.groovy` files for `try/catch` blocks that only `echo` the error without re-throwing or marking the build unstable/failed.
+- Specifically flag in `Jenkinsfile` post blocks: `catch (Exception e) { echo "⚠️ Failed to send ... notification: ${e.message}" }` — notification failures are silently swallowed. A failed notification means the team is unaware of pipeline outcomes.
+
+## 7.2 Python Exception Handling
+- In `generate_dockerfile.py`: the main loop has no top-level exception handler. A single malformed `config.yaml` will abort generation for ALL subsequent images in the run. Flag: should catch per-image exceptions and continue with remaining images, returning a non-zero exit code only if all images failed.
+
+## 7.3 Log Verbosity vs. Signal
+- `Jenkinsfile` `Load Scripts` stage echoes `=== Loading Scripts in Parallel ===` and `=== Scripts Loaded Successfully ===`. Multiply this pattern across all stages — the console log is dominated by delimiter banners. Flag as LOW noise issue that reduces log readability.
+- Flag that generated Dockerfile contents are printed to console in `DockerfileGenerator.groovy` — for large Dockerfiles in many-version builds, this floods the log.
+
+## 7.4 No Structured Logging
+- All logging uses `echo` (plain string). Flag: no structured/JSON logging means log aggregation tools (Elasticsearch, Splunk) cannot parse pipeline events without custom grok patterns.
+
+## 7.5 No Alerting Thresholds
+- The pipeline reports success/unstable/failure but has no alerting on: build duration regression, image size growth, or consecutive failures. Flag as LOW/MEDIUM observability gap.
+
+## 7.6 PIPELINE_REPORT Partial State on Failure
+- In `Load Scripts` post.failure block: `startTime` is referenced but declared inside the `steps` closure, making it out of scope in `post`. Flag as CRITICAL runtime bug — this block will throw a `MissingPropertyException` on script load failure, masking the original error.
+
+## 7.7 `returnStdout: true` with `returnStatus: true` — HIGH
+- In `ImagePusher.groovy` and `SmokeTests.groovy`: `sh(script: ..., returnStatus: true, returnStdout: true)`. In Jenkins Pipeline, you cannot use both simultaneously — `returnStdout: true` takes precedence and `returnStatus` is ignored, meaning the returned value is the stdout string, not the exit code. The integer comparison `if (pushResult == 0)` will always be false (string != integer). Flag as CRITICAL functional bug.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 8 — DOCUMENTATION & API CONTRACTS
+# ══════════════════════════════════════════════════════════════
+
+## 8.1 Groovy Function Signatures — No Type Annotations
+- Groovy supports optional typing. Scan all `.groovy` files: flag functions with more than 3 parameters that lack type annotations or inline parameter documentation.
+- Flag `buildImages(versionsData, imagesToBuild, params)` — `params` is an untyped map; callers must infer the expected keys from usage.
+
+## 8.2 versions.yaml Schema — Undocumented
+- `versions.yaml` is the central configuration file. Flag: no JSON Schema, no schema comment block, no documented list of all supported fields and their types/defaults.
+- Fields like `multi_registry`, `extra_tags`, `image_tag_format` (version-level override), `priority` are used in code but not described in `README.md` schema section.
+
+## 8.3 README Accuracy
+- Cross-check `README.md` claims against implementation:
+  - "изменения per-version файлов приводят к пересборке только соответствующих версий" — verify `Utils.groovy:getChangedVersions` correctly handles `images/<image>/<version>/` paths. Flag any discrepancy.
+  - Verify the documented `EXTRA_REGISTRIES` behavior matches `ImagePusher.groovy:getTargetTags` implementation.
+- Flag any README section that describes planned/future behavior as if it were implemented (e.g., `TARGET_PLATFORMS` is documented as "informational only" — verify the code truly ignores it).
+
+## 8.4 Inline Documentation
+- Flag all public functions in `.groovy` files lacking at minimum a one-line docstring describing inputs, outputs, and side effects.
+- Flag `generate_dockerfile.py:generate_dockerfile()` — the docstring says "Генерирует Dockerfile" but doesn't document the config merge precedence order, which is the critical business logic.
+
+## 8.5 Change Log / Versioning
+- Flag absence of `CHANGELOG.md` or versioning scheme for the pipeline scripts themselves. When `ImageBuilder.groovy` changes, there is no way to determine what version of the pipeline logic is deployed without inspecting git history.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 9 — CI/CD & DEVOPS HYGIENE
+# ══════════════════════════════════════════════════════════════
+
+## 9.1 No Branch Protection Rules Visible
+- Flag absence of `.github/CODEOWNERS`, branch protection configuration, or equivalent documented in README. Without this, anyone with repo write access can push changes that immediately affect production image builds.
+
+## 9.2 Cleanup Stage Reliability — HIGH
+- `post { always { script { sh 'rm -rf generated/ || true'; deleteDir() } } }` — `deleteDir()` deletes the workspace including the `generated/` directory. The `rm -rf generated/` before it is redundant. More critically: if `deleteDir()` fails (permissions, NFS mount), the workspace is not cleaned and subsequent builds may use stale generated Dockerfiles. Flag: `deleteDir()` should be wrapped in try/catch with an alert on failure.
+
+## 9.3 Timeout Coverage — MEDIUM
+- `Load Scripts` stage has no `timeout` option. If a shared library is unreachable, this stage hangs indefinitely. Flag.
+- `Environment Setup` has a 10-minute timeout for a `docker pull` — this is reasonable, but verify it's sufficient for large builder images on slow networks.
+
+## 9.4 Retry Logic Inconsistency
+- `Environment Setup` wraps `builderImage.pull()` in `retry(3)`. The push stage wraps `docker push` in `retry(3)`. But `docker build` has no retry. Flag: transient network failures during build (pulling base image via `--pull`) will fail the build without retry.
+
+## 9.5 Agent Label Hardcoded — MEDIUM
+- `label 'slave'` in `Jenkinsfile` agent block. "slave" is deprecated terminology and may not match the actual agent label in the target Jenkins instance. Flag: use a descriptive label (e.g., `docker-builder`) and document the required agent capabilities.
+
+## 9.6 Parallel Script Load Race Condition
+- `Load Scripts` uses `parallel scriptLoads` where each closure assigns to a shared variable (`utils`, `reportModel`, etc.). In Jenkins Pipeline's parallel implementation, these closures run in separate threads but assign to variables in the enclosing scope. Flag: Groovy script variables are not thread-safe; assignments from parallel branches to shared variables require synchronization. This is a potential race condition if Jenkins ever changes its threading model. Classify as MEDIUM.
+
+## 9.7 No Pipeline-as-Code Linting
+- Flag absence of `jenkinsfile-linter` or equivalent pre-commit hook to validate `Jenkinsfile` syntax before pushing.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 10 — CONFIGURATION & SECRET MANAGEMENT
+# ══════════════════════════════════════════════════════════════
+
+## 10.1 Secrets in Pipeline Parameters — CRITICAL
+- Verify that `REGISTRY_CREDENTIALS` parameter stores only a Jenkins credential ID (string), NOT the actual password. If the default value `registry-user-password` is a literal password rather than a credential ID, flag as CRITICAL.
+
+## 10.2 pip.conf — Plaintext Artifact Registry URL
+- `common/files/pip.conf` contains `extra-index-url=https://artifactory.nexign.com:443/artifactory/generic-dev-local/ps/rnd/mfactory`. This URL is baked into images. Flag: if the Artifactory path or credentials change, every image in the repo must be rebuilt. Flag as LOW configuration coupling issue.
+- Verify no `username` or `password` fields are present in `pip.conf`.
+
+## 10.3 Environment Variable Leakage
+- `env.VERSIONS_DATA` stores the full parsed `versions.yaml` as a JSON string in the Jenkins environment. Flag: environment variables are visible in the Jenkins UI to any user with build read access. If `versions.yaml` ever contains sensitive data (tokens, internal hostnames), this is an exposure vector. Flag as MEDIUM.
+- Same applies to `env.PIPELINE_REPORT` which may contain partial build logs.
+
+## 10.4 Config Merge Strategy — Undocumented Precedence
+- `generate_dockerfile.py` merges configs: `common/config.yaml` → `images/<image>/config.yaml` → `images/<image>/<version>/config.yaml` → `version_data` from `versions.yaml`. The merge uses `dict.update()` which does a shallow merge. Flag: nested keys (e.g., `packages` list, `copy` list) from a parent config are completely REPLACED, not merged, by child configs. This is an undocumented footgun — an image-level `config.yaml` that sets `packages: [bash]` will silently drop the `ca-certificates` from `common/config.yaml`.
+
+## 10.5 No Environment Separation
+- There is no concept of dev/staging/prod environment in the pipeline. The same `versions.yaml` and same registry are used regardless of context. Flag: no mechanism to promote images from dev registry to prod registry with separate approval gates.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 11 — DATA INTEGRITY & PERSISTENCE LAYER
+# ══════════════════════════════════════════════════════════════
+
+## 11.1 Generated Dockerfile Integrity — HIGH
+- Generated Dockerfiles are written to `generated/<image>/<version>/Dockerfile` and used directly for builds. Flag: there is no checksum or hash verification between generation and build stages. If another Jenkins job or a filesystem issue modifies a generated file between stages, the wrong Dockerfile is built without detection.
+
+## 11.2 YAML Parsing Safety
+- `generate_dockerfile.py` uses `yaml.safe_load()` — correct. Verify no usage of `yaml.load()` without `Loader=` argument anywhere in the codebase. Grep for `yaml.load(` without `Loader=yaml.SafeLoader`. Flag any occurrence as HIGH (arbitrary code execution via YAML deserialization).
+- In `Jenkinsfile`: `readYaml file: 'versions.yaml'` — Jenkins' `readYaml` step uses SnakeYAML; verify YAML tags (e.g., `!!python/object`) cannot be injected via `versions.yaml`. For repo-controlled files this is LOW risk but should be noted.
+
+## 11.3 Artifact Archiving
+- `report.html` is archived as a build artifact. Flag: logs embedded in the report contain build output that may include internal hostnames, image digests, and error messages. Verify the Jenkins artifact access policy restricts this to authorized users.
+
+## 11.4 No Image Manifest Verification After Push
+- After `docker push`, there is no verification that the pushed digest matches the locally built image. Flag: a registry-side issue could result in a corrupt or incorrect manifest being served. Recommend `docker manifest inspect <tag>` post-push verification.
+
+## 11.5 Workspace Isolation
+- Multiple builds running simultaneously on the same Jenkins agent share the filesystem. `generated/` directory is relative to workspace; if Jenkins workspace isolation is not configured, parallel pipeline runs may write to the same `generated/` paths. Flag: verify Jenkins workspace naming includes build number or use `ws("${env.JOB_NAME}-${env.BUILD_NUMBER}")`.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# DOMAIN 12 — CONCURRENCY & RACE CONDITIONS
+# ══════════════════════════════════════════════════════════════
+
+## 12.1 Parallel Build Shared State — HIGH
+- In `ImageBuilder.groovy:executeBuildPlan`, the `successful` and `failed` lists are passed by reference into parallel closures:
+  ```groovy
+  parallelBuilds[imageKey] = {
+      def result = buildSingleImage(..., successful, failed, ...)
+  }
+  ```
+  Inside `buildSingleImage`, `successful.add(imageTag)` and `failed.add(imageTag)` mutate shared lists from multiple threads. Groovy `ArrayList` is NOT thread-safe. Flag as HIGH — use `java.util.concurrent.CopyOnWriteArrayList` or synchronize access.
+
+## 12.2 Shared Log Map — HIGH
+- Same pattern: `logs[result.image] = result.log` and `imageDurations[result.image] = result.duration` are concurrent writes to a shared `HashMap` from parallel closures. `HashMap` is not thread-safe for concurrent writes. Flag as HIGH — use `ConcurrentHashMap` or collect results and merge after `parallel` block completes.
+
+## 12.3 PIPELINE_REPORT env Sync Under Concurrency
+- `reportModel.syncEnv(PIPELINE_REPORT)` writes `env.PIPELINE_REPORT` after stage completion. Since stages run sequentially in the main pipeline, this is safe. However, if any stage is ever converted to a parallel stage, this will be a race. Flag as LOW with a note to add a comment documenting the sequential assumption.
+
+## 12.4 Parallel Script Loading — Variable Assignment
+- As noted in Domain 9.6: parallel closures assigning to outer-scope variables (`utils = load ...`) is not guaranteed to be safely visible to the main thread without a memory barrier. In practice, Jenkins Pipeline serializes closure variable writes via CPS transformation, but this behavior is an implementation detail, not a contract. Flag as MEDIUM — add explicit null-checks with synchronized block or use a results map.
+
+## 12.5 Docker Daemon Contention
+- Parallel builds all invoke `docker build` and `docker push` against the same Docker daemon on the same agent. Flag: Docker daemon is single-threaded for metadata operations; heavy parallel builds can cause contention and timeouts. Verify `MAX_PARALLEL_THREADS` is tuned to the agent's Docker daemon capacity, not just CPU count.
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# AUDIT OUTPUT INSTRUCTIONS
+# ══════════════════════════════════════════════════════════════
+
+After completing all domain checks, output a SUMMARY block:
+
+```
+## AUDIT SUMMARY
+CRITICAL: <count> findings
+HIGH:     <count> findings
+MEDIUM:   <count> findings
+LOW:      <count> findings
+
+## TOP 10 PRIORITY REMEDIATION (ordered by risk × effort)
+1. [CRITICAL] ...
+2. [CRITICAL] ...
+...
+```
+
+For each finding also include the exact file path and line number (if determinable) in the finding output:
+`[SEVERITY] Domain: <file>:<line>: <finding> — <recommendation>`
+
+If a check cannot be evaluated due to missing context (e.g., runtime behavior), output:
+`[NEEDS-RUNTIME] Domain: <check> — requires execution or external context to verify`

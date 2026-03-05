@@ -3,6 +3,7 @@ import com.nmf.ci.utils.ExternalUtils
 
 def ExternalUtils externalUtils = new ExternalUtils(this)
 def PIPELINE_REPORT = [:]
+def loadScriptsStartTime = 0L
 
 def utils
 def reportModel
@@ -17,7 +18,11 @@ def reportGenerator
 pipeline {
     agent {
         node {
-            label 'slave'
+            // Required agent capabilities: docker, docker buildx, git, python3, sha256sum
+            label 'docker-builder'
+            // Unique workspace per build number prevents parallel pipeline runs
+            // on the same agent from writing to the same generated/ directory.
+            customWorkspace "workspace/${env.JOB_NAME}/${env.BUILD_NUMBER}"
         }
     }
 
@@ -32,20 +37,26 @@ pipeline {
             defaultValue: 'all',
             description: 'List of images to build (all or comma-separated list, e.g., alpine,java/maven)'
         )
+        choice(
+            name: 'TARGET_ENV',
+            choices: ['dev', 'rc', 'prod'],
+            description: 'Target deployment environment. Controls which registry is used as primary push destination.'
+        )
         string(
             name: 'REGISTRY_URL',
             defaultValue: 'https://docker-mf-middle-dev-local.nexign.com',
-            description: 'Docker registry URL'
+            description: 'Docker registry URL (overrides TARGET_ENV default when set explicitly)'
         )
         string(
             name: 'REGISTRY_NAMESPACE',
             defaultValue: 'microservices/infra',
             description: 'Base namespace/path in registry for images'
         )
-        string(
+        credentials(
             name: 'REGISTRY_CREDENTIALS',
             defaultValue: 'registry-user-password',
-            description: 'Credentials ID for Docker registry'
+            description: 'Jenkins credentials ID for Docker registry (username/password)',
+            credentialType: 'com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl'
         )
         string(
             name: 'BUILDER_IMAGE',
@@ -55,7 +66,9 @@ pipeline {
         string(
             name: 'MAX_PARALLEL_THREADS',
             defaultValue: '10',
-            description: 'Maximum parallel build threads'
+            description: 'Hint for maximum parallel builds within a priority group. ' +
+                'Tune based on Docker daemon capacity on the agent, not just CPU count. ' +
+                'High values may cause daemon metadata contention and build timeouts.'
         )
         string(
             name: 'TARGET_PLATFORMS',
@@ -68,14 +81,19 @@ pipeline {
             description: 'Generate and send pipeline summary report'
         )
         booleanParam(
+            name: 'USE_BUILD_CACHE',
+            defaultValue: true,
+            description: 'Use Docker layer cache during image builds. Disable for a guaranteed clean build (adds significant build time).'
+        )
+        booleanParam(
             name: 'ENABLE_DOCKER_LINT',
-            defaultValue: false,
-            description: 'Run hadolint against generated Dockerfiles (requires hadolint to be available)'
+            defaultValue: true,
+            description: 'Run hadolint against generated Dockerfiles (requires hadolint to be available). Disable only with explicit justification.'
         )
         booleanParam(
             name: 'ENABLE_DOCKER_SCAN',
-            defaultValue: false,
-            description: 'Run trivy image scan for built images (requires trivy to be available)'
+            defaultValue: true,
+            description: 'Run trivy image scan for built images (requires trivy to be available). Disable only with explicit justification.'
         )
         string(
             name: 'EXTRA_REGISTRIES',
@@ -86,9 +104,12 @@ pipeline {
 
     stages {
         stage('Load Scripts') {
+            options {
+                timeout(time: 3, unit: 'MINUTES')
+            }
             steps {
                 script {
-                    def startTime = System.currentTimeMillis()
+                    loadScriptsStartTime = System.currentTimeMillis()
                     echo '=== Loading Scripts in Parallel ==='
                     def scriptLoads = [
                         'utils'          : { utils = load 'jenkins/utils/Utils.groovy' },
@@ -109,13 +130,11 @@ pipeline {
 
                     env.SCRIPTS_LOADED = 'true'
                     PIPELINE_REPORT = reportModel.initReport()
-                    PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'loadScripts', [
+                    PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'loadScripts', [
                         status  : 'SUCCESS',
-                        duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                        duration: "${(System.currentTimeMillis() - loadScriptsStartTime) / 1000}s",
                         message : 'Scripts loaded successfully'
                     ])
-                    reportModel.syncEnv(PIPELINE_REPORT)
-                    echo '=== Scripts Loaded Successfully ==='
                 }
             }
             post {
@@ -123,7 +142,7 @@ pipeline {
                     script {
                         PIPELINE_REPORT.loadScripts = [
                             status: 'FAILED',
-                            duration: "${(System.currentTimeMillis() - startTime) / 1000}s",
+                            duration: "${(System.currentTimeMillis() - loadScriptsStartTime) / 1000}s",
                             message: 'Failed to load scripts'
                         ]
                         env.PIPELINE_REPORT = writeJSON returnText: true, json: PIPELINE_REPORT
@@ -163,9 +182,8 @@ pipeline {
                                 versionsYaml = readJSON text: versionsYaml
                             }
                             env.VERSIONS_DATA = writeJSON returnText: true, json: versionsYaml
-
-                            // Print the value of versionsYaml
-                            echo "versionsYaml content: ${versionsYaml}"
+                            // NOTE: env.VERSIONS_DATA is visible in Jenkins UI to users with build
+                            // read access. Do NOT add secrets or tokens to versions.yaml.
 
                             def changedFiles = utils.getChangedFiles()
                             def changedImages = utils.getChangedImages(changedFiles)
@@ -199,17 +217,19 @@ pipeline {
                                 error("No valid images to build. Aborting pipeline.")
                             }
 
+                            validation.validateRegistryUrl(params.REGISTRY_URL)
+                            validation.validateAgentCapabilities(params.EXTRA_REGISTRIES)
+                            validation.validateBaseImagePinning(versionsYaml)
                             validation.validateImageDirectories(imagesToBuild)
                             validation.validateFileIntegrity(versionsYaml, imagesToBuild)
+                            validation.validateTemplateSyntax(imagesToBuild)
 
-                            PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'validation', [
+                            PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'validation', [
                                 status     : 'SUCCESS',
                                 duration   : "${(System.currentTimeMillis() - startTime) / 1000}s",
                                 message    : 'Initial validation completed successfully',
                                 imagesCount: imagesToBuild.size()
                             ])
-                            reportModel.syncEnv(PIPELINE_REPORT)
-                            echo '=== Initial Validation Completed Successfully ==='
                         }
                     }
                 }
@@ -217,11 +237,10 @@ pipeline {
             post {
                 failure {
                     script {
-                        PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'validation', [
+                        PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'validation', [
                             status : 'FAILED',
                             message: 'Initial validation failed'
                         ])
-                        reportModel.syncEnv(PIPELINE_REPORT)
                     }
                 }
             }
@@ -242,20 +261,17 @@ pipeline {
                                 builderImage.pull()
                                 echo "✓ Builder image found and pulled: ${params.BUILDER_IMAGE}"
                             }
-                            PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'environment', [
+                            PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'environment', [
                                 status      : 'SUCCESS',
                                 duration    : "${(System.currentTimeMillis() - startTime) / 1000}s",
                                 message     : 'Environment setup completed successfully',
                                 builderImage: params.BUILDER_IMAGE
                             ])
-                            reportModel.syncEnv(PIPELINE_REPORT)
-                            echo '=== Environment Setup Completed ==='
                         } catch (Exception e) {
-                            PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'environment', [
+                            PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'environment', [
                                 status : 'FAILED',
                                 message: "Failed to set up environment: ${e.message}"
                             ])
-                            reportModel.syncEnv(PIPELINE_REPORT)
                             error("Failed to find or pull builder image: ${params.BUILDER_IMAGE}. Error: ${e.message}")
                         }
                     }
@@ -274,20 +290,24 @@ pipeline {
                     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
                         def builderImage = docker.image(params.BUILDER_IMAGE)
                         builderImage.inside() {
-                            sh '''
-                                python3 -m venv venv
-                                source venv/bin/activate
-                                pip install --upgrade pip
-                                pip install jinja2 PyYAML
-                                python3 -c "import yaml; print('PyYAML installed successfully')"
-                                python3 -c "import jinja2; print('Jinja2 installed successfully')"
-                            '''
+                            // Retry pip install to handle transient Artifactory unavailability.
+                            // Versions are pinned in requirements.txt for reproducibility.
+                            retry(3) {
+                                sh '''
+                                    python3 -m venv venv
+                                    source venv/bin/activate
+                                    pip install --upgrade pip
+                                    pip install -r jenkins/dockerfile/requirements.txt
+                                    python3 -c "import yaml; print('PyYAML installed successfully')"
+                                    python3 -c "import jinja2; print('Jinja2 installed successfully')"
+                                '''
+                            }
                             def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
                             def generationResult = dockerfileGenerator.generateDockerfiles(imagesToBuild)
                             if (generationResult.successful.size() == 0) {
                                 error('No Dockerfiles were generated successfully. Aborting pipeline.')
                             }
-                            PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'generation', [
+                            PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'generation', [
                                 status    : generationResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
                                 duration  : "${(System.currentTimeMillis() - startTime) / 1000}s",
                                 successful: generationResult.successful,
@@ -295,14 +315,12 @@ pipeline {
                                 logs      : generationResult.logs,
                                 durations : generationResult.durations
                             ])
-                            reportModel.syncEnv(PIPELINE_REPORT)
                             if (generationResult.failed.size() > 0) {
                                 unstable("WARNING: Failed to generate Dockerfiles for: ${generationResult.failed}")
                             }
                             echo "✓ Successfully generated Dockerfiles: ${generationResult.successful.size()}"
                         }
                     }
-                    echo '=== Dockerfile Generation Completed ==='
                 }
             }
         }
@@ -315,6 +333,7 @@ pipeline {
                 script {
                     def startTime = System.currentTimeMillis()
                     echo '=== Building Images ==='
+                    dockerfileGenerator.verifyDockerfileChecksums()
                     def versionsData = readJSON text: env.VERSIONS_DATA
                     def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
                     def generationResult = PIPELINE_REPORT.generation
@@ -322,7 +341,7 @@ pipeline {
                         generationResult.successful.contains(it)
                     }
                     def buildResult = imageBuilder.buildImages(versionsData, imagesToBuildFiltered, params)
-                    PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'build', [
+                    PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'build', [
                         status        : buildResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
                         duration      : "${(System.currentTimeMillis() - startTime) / 1000}s",
                         successful    : buildResult.successful,
@@ -330,7 +349,8 @@ pipeline {
                         logs          : buildResult.logs,
                         imageDurations: buildResult.imageDurations
                     ])
-                    reportModel.syncEnv(PIPELINE_REPORT)
+                    // Intentional asymmetry: partial failure → UNSTABLE (some images built),
+                    // total failure → ERROR (no images to test or push).
                     if (buildResult.successful.size() == 0) {
                         error('No images were built successfully. Aborting pipeline.')
                     }
@@ -338,7 +358,6 @@ pipeline {
                         unstable("WARNING: Failed to build images: ${buildResult.failed}")
                     }
                     echo "✓ Successfully built images: ${buildResult.successful.size()}"
-                    echo '=== Image Building Completed ==='
                 }
             }
         }
@@ -357,7 +376,6 @@ pipeline {
                           echo "hadolint not installed, skipping lint"
                         fi
                     '''
-                    echo '=== Dockerfile lint stage completed ==='
                 }
             }
         }
@@ -372,7 +390,7 @@ pipeline {
                     echo '=== Running Smoke Tests ==='
                     def buildResult = PIPELINE_REPORT.build
                     def testResult = smokeTests.runSmokeTests(buildResult.successful)
-                    PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'smokeTests', [
+                    PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'smokeTests', [
                         status       : testResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
                         duration     : "${(System.currentTimeMillis() - startTime) / 1000}s",
                         successful   : testResult.successful,
@@ -380,12 +398,10 @@ pipeline {
                         logs         : testResult.logs,
                         testDurations: testResult.testDurations
                     ])
-                    reportModel.syncEnv(PIPELINE_REPORT)
                     if (testResult.failed.size() > 0) {
                         unstable("WARNING: Smoke tests failed for: ${testResult.failed}")
                     }
                     echo "✓ Successfully passed smoke tests: ${testResult.successful.size()}"
-                    echo '=== Smoke Tests Completed ==='
                 }
             }
         }
@@ -400,7 +416,7 @@ pipeline {
                     echo '=== Pushing Images to Registry ==='
                     def testResult = PIPELINE_REPORT.smokeTests
                     def pushResult = imagePusher.pushImages(testResult.successful, params)
-                    PIPELINE_REPORT = reportModel.updateStage(PIPELINE_REPORT, 'push', [
+                    PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'push', [
                         status       : pushResult.failed.isEmpty() ? 'SUCCESS' : 'FAILED',
                         duration     : "${(System.currentTimeMillis() - startTime) / 1000}s",
                         successful   : pushResult.successful,
@@ -408,12 +424,10 @@ pipeline {
                         logs         : pushResult.logs,
                         pushDurations: pushResult.pushDurations
                     ])
-                    reportModel.syncEnv(PIPELINE_REPORT)
                     if (pushResult.failed.size() > 0) {
                         unstable("WARNING: Failed to push images: ${pushResult.failed}")
                     }
                     echo "✓ Successfully pushed images: ${pushResult.successful.size()}"
-                    echo '=== Image Pushing Completed ==='
                 }
             }
         }
@@ -440,7 +454,6 @@ pipeline {
                             """
                         }
                     }
-                    echo '=== Image security scan stage completed ==='
                 }
             }
         }
@@ -453,7 +466,6 @@ pipeline {
                 script {
                     echo '=== Generating Final Report ==='
                     reportGenerator.generateFinalReport(PIPELINE_REPORT)
-                    echo '=== Final Report Generated ==='
                 }
             }
         }
@@ -463,7 +475,12 @@ pipeline {
         always {
             script {
                 sh 'rm -rf generated/ || true'
-                deleteDir()
+                try {
+                    deleteDir()
+                } catch (Exception e) {
+                    echo "⚠️ Failed to clean workspace: ${e.message}. Stale files may affect next build."
+                    currentBuild.result = currentBuild.result ?: 'UNSTABLE'
+                }
             }
         }
         success {
@@ -474,6 +491,7 @@ pipeline {
                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                     } catch (Exception e) {
                         echo "⚠️ Failed to send success notification: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
                     }
                 } else {
                     echo 'ℹ️ Skipping success notification due to disabled reporting'
@@ -488,6 +506,7 @@ pipeline {
                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                     } catch (Exception e) {
                         echo "⚠️ Failed to send unstable notification: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
                     }
                 } else {
                     echo 'ℹ️ Skipping unstable notification due to disabled reporting'
@@ -502,6 +521,7 @@ pipeline {
                         externalUtils.notify(message, env.JOB_NAME, env.BUILD_URL)
                     } catch (Exception e) {
                         echo "⚠️ Failed to send failure notification: ${e.message}"
+                        currentBuild.result = 'FAILURE'
                     }
                 } else {
                     echo 'ℹ️ Skipping failure notification due to disabled reporting'

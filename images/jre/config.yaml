@@ -6,10 +6,8 @@ packages:
   - bash
   - openssh
 java_certs:
-  - alias: megaACME1
-    file: megafon-acme-01.crt
-  - alias: megaACME2
-    file: megafon-acme-02.pem
+  # megaACME1 (megafon-acme-01.crt) removed: file missing from common/files/certs/
+  # megaACME2 (megafon-acme-02.pem) removed: file missing from common/files/certs/
   - alias: megaROOTCA
     file: megafon-ca.crt
   - alias: megaSUBCA1
@@ -22,8 +20,7 @@ java_certs:
     file: megafon-subca042020.crt
   - alias: mfactory
     file: mfactory.nxcloud.nexign.com.crt
-  - alias: minio2
-    file: minio2.crt
+  # minio2 (minio2.crt) removed: file missing from common/files/certs/
   - alias: nexign1
     file: nexign-01.crt
   - alias: nexign2
