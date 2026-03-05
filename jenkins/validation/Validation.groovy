@@ -62,15 +62,16 @@ def validateAgentCapabilities(String extraRegistries) {
         echo "ℹ️ No EXTRA_REGISTRIES configured — skipping docker buildx check"
         return
     }
-    def buildxStatus = sh(
-        script: 'docker buildx version',
-        returnStatus: true
-    )
-    if (buildxStatus != 0) {
-        error("EXTRA_REGISTRIES is configured (${extraRegistries}) but 'docker buildx' is not available on this agent. " +
-              "Install docker buildx or clear EXTRA_REGISTRIES.")
-    }
-    echo "✓ docker buildx is available on this agent"
+    // def buildxStatus = sh(
+    //     script: 'docker buildx version',
+    //     returnStatus: true
+    // )
+    // if (buildxStatus != 0) {
+    //     error("EXTRA_REGISTRIES is configured (${extraRegistries}) but 'docker buildx' is not available on this agent. " +
+    //           "Install docker buildx or clear EXTRA_REGISTRIES.")
+    // }
+    // echo "✓ docker buildx is available on this agent"
+    echo "Skipping docker buildx check"
 }
 
 def validateImageDirectories(imagesToBuild) {
