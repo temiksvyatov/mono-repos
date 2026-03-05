@@ -51,7 +51,7 @@ java:
   multi_registry: true
   maven:
     image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/java/docker-java{version}maven-alpine:latest"
-    extra_tags: ["docker-all-local.nexing.com/shared/microservices/infra/build/java/docker-java{version}maven-alpine:latest"]
+    extra_tags: ["docker-all-local.nexign.com/shared/microservices/infra/build/java/docker-java{version}maven-alpine:latest"]
     versions:
       - version: '17'
         base_image: docker.nexign.com/maven:3-eclipse-temurin-17-alpine
@@ -61,7 +61,7 @@ java:
         base_image: docker.nexign.com/maven:3-eclipse-temurin-25-alpine
   gradle:
     image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/java/docker-java{version}gradle-alpine:latest"
-    extra_tags: ["docker-all-local.nexing.com/shared/microservices/infra/build/java/docker-java{version}gradle-alpine:latest"]
+    extra_tags: ["docker-all-local.nexign.com/shared/microservices/infra/build/java/docker-java{version}gradle-alpine:latest"]
     versions:
       - version: '17'
         base_image: docker.nexign.com/gradle:jdk17-alpine
