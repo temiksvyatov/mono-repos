@@ -1,7 +1,22 @@
+# =============================================================================
+# common/config.yaml — Default configuration applied to ALL images.
+# Overridden by images/<image>/config.yaml, then images/<image>/<version>/config.yaml.
+# Merge strategy: scalars and lists are replaced by child configs; dicts are merged.
+#
+# Fields:
+#   package_manager: apk | microdnf | dnf
+#   packages:  List of packages to install.
+#   env:       Map of ENV variables (key: value).
+#   users:     List of {name, uid} to create via adduser.
+#   copy:      List of {source, dest} COPY instructions.
+#   run:       List of shell commands for RUN instructions.
+#   workdir:   WORKDIR path.
+#   user:      USER (UID or name).
+# =============================================================================
 default:
   package_manager: apk
-  registry: docker-mf-middle-dev-local.nexign.com
-  target_registry: microservices/infra/runtime/base
+  # registry and target_registry are NOT defined here to enforce a single source of truth.
+  # Authoritative values are in versions.yaml (image_tag_format) and Jenkinsfile (REGISTRY_URL).
   packages:
     - ca-certificates
     - bash

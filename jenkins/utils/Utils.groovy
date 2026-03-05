@@ -69,6 +69,41 @@ def getChangedVersions(changedFiles) {
     return changedVersions
 }
 
+/**
+ * Resolves the full list of Docker tags for a given image version.
+ *
+ * @param imageName   Image path, e.g. 'java/maven'.
+ * @param versionData Version entry map from versions.yaml (must have 'version' key).
+ * @param imageData   Parent image map from versions.yaml (may have image_tag_format, extra_tags).
+ * @param params      Pipeline params map (must have REGISTRY_NAMESPACE).
+ * @return            List of fully-qualified image tags; first element is the primary tag.
+ */
+def resolveImageTags(String imageName, Map versionData, Map imageData, params) {
+    def format = versionData.image_tag_format ?: imageData.image_tag_format ?: imageData.format
+    if (!format) {
+        error("No image_tag_format defined in versions.yaml for image ${imageName}")
+    }
+    def baseTag = format.replace('{version}', "${versionData.version}")
+    def tags = [baseTag]
+
+    def extraTagFormats = []
+    if (imageData.extra_tags instanceof List) {
+        extraTagFormats.addAll(imageData.extra_tags)
+    }
+    if (versionData.extra_tags instanceof List) {
+        extraTagFormats.addAll(versionData.extra_tags)
+    }
+    extraTagFormats.each { extraFormat ->
+        if (extraFormat) {
+            def extraTag = extraFormat.replace('{version}', "${versionData.version}")
+            if (extraTag && !tags.contains(extraTag)) {
+                tags.add(extraTag)
+            }
+        }
+    }
+    return tags
+}
+
 def determineImagesToBuild(versionsYaml, changedImages, imagesToBuildParam) {
     def imagesToBuild = []
 

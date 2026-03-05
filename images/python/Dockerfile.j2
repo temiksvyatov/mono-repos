@@ -2,8 +2,8 @@
 {% block package_installation %}
 USER 0
 RUN rm -f /etc/yum.repos.d/* && \
-    curl --connect-timeout 30 http://repo.nexign.com/scripts/add-ubi9-repo.sh | sh && \
-    curl --connect-timeout 30 http://repo.nexign.com/scripts/add-elrepo-repo.sh | sh && \
+    curl --connect-timeout 30 --fail https://repo.nexign.com/scripts/add-ubi9-repo.sh | sh && \
+    curl --connect-timeout 30 --fail https://repo.nexign.com/scripts/add-elrepo-repo.sh | sh && \
     update-ca-trust force-enable && \
     update-ca-trust extract && \
     {{ package_manager }} install -y --nodocs {{ packages | join(' ') }} && \
@@ -14,29 +14,23 @@ ENV APP_ROOT=/opt/app-root
 ENV PATH=/opt/app-root/src/bin:/opt/app-root/bin:$HOME/.local/bin/:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
-    PIP_NO_CACHE_DIR=off
+    PIP_NO_CACHE_DIR=off \
+    PYTHON_FULL_VERSION={{python_full_version}} \
+    PYTHON_MINOR_VERSION={{python_minor_version}} \
+    PYTHON_REGISTRY={{python_registry}}
 
 USER 0
 
-RUN useradd -m -u 11200 mf-user -s /bin/bash &&\
-    mkdir -p /data/app &&\
+RUN useradd -m -u 11200 mf-user -s /bin/bash && \
+    mkdir -p /data/app && \
     chown mf-user:mf-user /data/app
 
+COPY images/python/build-python.sh /tmp/build-python.sh
+RUN chmod +x /tmp/build-python.sh
 
-RUN --mount=type=secret,id=tok \
-    curl -H "X-JFrog-Art-Api: $(cat /run/secrets/tok)" {{python_registry}}/{{python_full_version}}/Python-{{python_full_version}}.tgz -o Python-{{python_full_version}}.tgz
-RUN tar xzf Python-{{python_full_version}}.tgz && \
-    cd Python-{{python_full_version}} && \
-    ./configure --enable-optimizations --enable-loadable-sqlite-extensions && \
-    make -j $(nproc) && \
-    make altinstall && \
-    rm -rf /Python-{{python_full_version}}* && \
-    ln -s /usr/local/bin/python{{python_minor_version}} /usr/local/bin/python3 && \
-    ln -s /usr/local/bin/pip{{python_minor_version}} /usr/local/bin/pip && \
-    pip install virtualenv yq && \
-    pip install --upgrade setuptools && \
-    python3 -m virtualenv ${APP_ROOT} && \
-    chown -R 11200:0 ${APP_ROOT}
+# Build Python from source. The Artifactory API token is injected via BuildKit
+# secret mount and never appears in any image layer.
+RUN --mount=type=secret,id=tok /tmp/build-python.sh && rm /tmp/build-python.sh
 {% endblock %}
 {% block post_install %}
 {% endblock %}

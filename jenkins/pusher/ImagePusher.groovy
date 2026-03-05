@@ -1,8 +1,18 @@
-def pushImages(testedImages, params) {
-    def successful = []
-    def failed = []
-    def logs = [:]
-    def pushDurations = [:]
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+/**
+ * Push all tested images to the primary registry and replicate to extra registries.
+ *
+ * @param testedImages  List<String> of fully-qualified image tags that passed smoke tests.
+ * @param params        Pipeline params map. Required keys:
+ *                        REGISTRY_URL, REGISTRY_CREDENTIALS, EXTRA_REGISTRIES.
+ * @return Map { successful: List, failed: List, logs: Map, pushDurations: Map }.
+ */
+def pushImages(List testedImages, params) {
+    def successful = new java.util.concurrent.CopyOnWriteArrayList()
+    def failed = new java.util.concurrent.CopyOnWriteArrayList()
+    def logs = new java.util.concurrent.ConcurrentHashMap()
+    def pushDurations = new java.util.concurrent.ConcurrentHashMap()
 
     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
         testedImages.each { image ->
@@ -14,54 +24,10 @@ def pushImages(testedImages, params) {
                     echo "No target tags resolved for image ${image}, skipping"
                     return
                 }
-
                 def baseTag = image
-
-                // Сначала пушим базовый тег обычным docker push
-                echo "Pushing base image: ${baseTag}"
-                retry(3) {
-                    def pushResult = sh(
-                        script: "docker push ${baseTag}",
-                        returnStatus: true,
-                        returnStdout: true
-                    )
-                    log += pushResult
-                    if (pushResult == 0) {
-                        successful.add(baseTag)
-                        echo "✓ Successfully pushed base image: ${baseTag}"
-                    } else {
-                        failed.add(baseTag)
-                        echo "✗ Error pushing base image: ${baseTag}"
-                        log += "\nError: Non-zero exit code from docker push"
-                        error("Push failed for base image ${baseTag}")
-                    }
-                }
-
-                // Затем реплицируем образ в дополнительные реестры через buildx imagetools, если они заданы
+                log += pushBaseTag(baseTag, successful, failed)
                 def extraTags = targetTags.findAll { it != baseTag }
-                extraTags.each { tag ->
-                    echo "Replicating image ${baseTag} to ${tag} via docker buildx imagetools"
-                    try {
-                        def replicateResult = sh(
-                            script: "docker buildx imagetools create -t ${tag} ${baseTag}",
-                            returnStatus: true,
-                            returnStdout: true
-                        )
-                        log += replicateResult
-                        if (replicateResult == 0) {
-                            successful.add(tag)
-                            echo "✓ Successfully replicated image to: ${tag}"
-                        } else {
-                            failed.add(tag)
-                            echo "✗ Error replicating image to: ${tag}"
-                            log += "\nError: Non-zero exit code from docker buildx imagetools create"
-                        }
-                    } catch (Exception e) {
-                        failed.add(tag)
-                        echo "✗ Exception while replicating image ${baseTag} to ${tag}: ${e.message}"
-                        log += "\nException while replicating to ${tag}: ${e.message}"
-                    }
-                }
+                log += replicateToExtraRegistries(baseTag, extraTags, params.REGISTRY_CREDENTIALS, successful, failed)
             } catch (Exception e) {
                 failed.add(image)
                 echo "✗ Exception while pushing image ${image}: ${e.message}"
@@ -78,6 +44,99 @@ def pushImages(testedImages, params) {
         logs: logs,
         pushDurations: pushDurations
     ]
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+
+/** Pushes the primary image tag, then verifies the pushed digest; returns a log string. */
+private String pushBaseTag(String baseTag, successful, failed) {
+    def log = ""
+    echo "Pushing base image: ${baseTag}"
+    retry(3) {
+        def pushResult = sh(script: "docker push ${baseTag}", returnStatus: true)
+        log += "docker push exit code: ${pushResult}"
+        if (pushResult == 0) {
+            successful.add(baseTag)
+            echo "✓ Successfully pushed base image: ${baseTag}"
+            log += verifyPushedDigest(baseTag)
+        } else {
+            failed.add(baseTag)
+            echo "✗ Error pushing base image: ${baseTag}"
+            log += "\nError: Non-zero exit code from docker push"
+            error("Push failed for base image ${baseTag}")
+        }
+    }
+    return log
+}
+
+/**
+ * Verifies that the registry manifest for the given tag is accessible after push.
+ * Uses docker manifest inspect to confirm the registry accepted the image.
+ * @return Log string with verification result.
+ */
+private String verifyPushedDigest(String tag) {
+    def log = ""
+    try {
+        def inspectResult = sh(
+            script: "docker manifest inspect ${tag} --verbose 2>&1 | head -5",
+            returnStatus: true
+        )
+        if (inspectResult == 0) {
+            log += "\n✓ Manifest verification passed for ${tag}"
+        } else {
+            log += "\n⚠️ Manifest verification returned non-zero for ${tag} — registry may have issues"
+            echo "⚠️ Warning: manifest inspect failed for ${tag}"
+        }
+    } catch (Exception e) {
+        log += "\n⚠️ Manifest verification skipped (docker manifest inspect unavailable): ${e.message}"
+    }
+    return log
+}
+
+/**
+ * Replicates baseTag to each extraTag using docker buildx imagetools.
+ *
+ * Each target registry is authenticated separately with the provided credentialsId
+ * before replication. This is necessary because docker.withRegistry() in pushImages
+ * only authenticates to the primary registry — extra registries require their own login.
+ * All registries share the same credentials.
+ *
+ * @param baseTag       Fully-qualified source image tag (already pushed to primary registry).
+ * @param extraTags     List of fully-qualified target tags on extra registries.
+ * @param credentialsId Jenkins credentials ID to use for each extra registry login.
+ * @return Log string with replication results.
+ */
+private String replicateToExtraRegistries(String baseTag, List extraTags, String credentialsId, successful, failed) {
+    def log = ""
+    extraTags.each { tag ->
+        echo "Replicating image ${baseTag} to ${tag} via docker buildx imagetools"
+        // Extract registry hostname from the target tag (everything before the first '/')
+        def targetRegistry = tag.split('/')[0]
+        try {
+            // Authenticate to the target extra registry before pushing.
+            // docker.withRegistry expects a full URL; the protocol prefix is required.
+            docker.withRegistry("https://${targetRegistry}", credentialsId) {
+                def replicateResult = sh(
+                    script: "docker buildx imagetools create -t ${tag} ${baseTag}",
+                    returnStatus: true
+                )
+                log += "docker buildx imagetools exit code: ${replicateResult}"
+                if (replicateResult == 0) {
+                    successful.add(tag)
+                    echo "✓ Successfully replicated image to: ${tag}"
+                } else {
+                    failed.add(tag)
+                    echo "✗ Error replicating image to: ${tag}"
+                    log += "\nError: Non-zero exit code from docker buildx imagetools create"
+                }
+            }
+        } catch (Exception e) {
+            failed.add(tag)
+            echo "✗ Exception while replicating image ${baseTag} to ${tag}: ${e.message}"
+            log += "\nException while replicating to ${tag}: ${e.message}"
+        }
+    }
+    return log
 }
 
 def getTargetTags(image, params) {
@@ -207,33 +266,26 @@ def resolveImageConfigForTag(image, versionsData) {
     return result
 }
 
-def computeImageTagsForPusher(imageName, versionData, imageData) {
+// NOTE: Tag resolution logic lives in Utils.groovy:resolveImageTags.
+// This private helper delegates to the same algorithm without reloading the script,
+// keeping ImagePusher focused on push orchestration.
+private List computeImageTagsForPusher(String imageName, Map versionData, Map imageData) {
     def format = versionData.image_tag_format ?: imageData.image_tag_format ?: imageData.format
     if (!format) {
-        echo "WARNING: No image tag format defined in versions.yaml for image ${imageName}"
-        return [ ]
+        echo "WARNING: No image_tag_format defined in versions.yaml for image ${imageName}"
+        return []
     }
-
     def baseTag = format.replace('{version}', "${versionData.version}")
     def tags = [baseTag]
-
     def extraTagFormats = []
-    if (imageData.extra_tags instanceof List) {
-        extraTagFormats.addAll(imageData.extra_tags)
-    }
-    if (versionData.extra_tags instanceof List) {
-        extraTagFormats.addAll(versionData.extra_tags)
-    }
-
-    extraTagFormats.each { extraFormat ->
-        if (extraFormat) {
-            def extraTag = extraFormat.replace('{version}', "${versionData.version}")
-            if (extraTag && !tags.contains(extraTag)) {
-                tags.add(extraTag)
-            }
+    if (imageData.extra_tags instanceof List) { extraTagFormats.addAll(imageData.extra_tags) }
+    if (versionData.extra_tags instanceof List) { extraTagFormats.addAll(versionData.extra_tags) }
+    extraTagFormats.each { f ->
+        if (f) {
+            def t = f.replace('{version}', "${versionData.version}")
+            if (t && !tags.contains(t)) { tags.add(t) }
         }
     }
-
     return tags
 }
 

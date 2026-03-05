@@ -1,3 +1,15 @@
+{% macro install_packages(manager, pkgs) -%}
+{%- if manager == 'apk' %}
+USER 0
+RUN apk add --no-cache {{ pkgs | join(' ') }}
+{%- elif manager == 'microdnf' %}
+RUN microdnf install -y --nodocs {{ pkgs | join(' ') }}
+{%- elif manager == 'dnf' %}
+RUN dnf install -y --nodocs {{ pkgs | join(' ') }}
+{%- else %}
+{# Unsupported package_manager: {{ manager }} — extend install_packages macro to add support #}
+{%- endif %}
+{%- endmacro %}
 FROM {{ base_image }} AS runtime
 LABEL NAME={{ name }}
 {# Copying general files #}
@@ -6,16 +18,9 @@ COPY {{ copy_item.source }} {{ copy_item.dest }}
 {% endfor %}
 {# Prepare alpine repos #}
 {% block alpine_repo_setup %}{% endblock %}
-{# Setup packages #}
+{# Setup packages — package manager selection is centralised in the install_packages macro above #}
 {% block package_installation %}
-    {% if package_manager == 'apk' %}
-        USER 0
-        RUN apk add --no-cache {{ packages | join(' ') }}
-    {% elif package_manager == 'microdnf' %}
-        RUN microdnf install -y --nodocs {{ packages | join(' ') }}
-    {% elif package_manager == 'dnf' %}
-        RUN dnf install -y --nodocs {{ packages | join(' ') }}
-    {% endif %}
+{{ install_packages(package_manager, packages) }}
 {% endblock %}
 {# Post-installation steps #}
 {% block post_install %}

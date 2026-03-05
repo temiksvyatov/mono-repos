@@ -1,8 +1,18 @@
+/**
+ * Generates Dockerfiles for the given list of images and records SHA256 checksums
+ * of every generated Dockerfile into the env variable DOCKERFILE_CHECKSUMS (JSON map).
+ * The build stage verifies checksums before building to detect any filesystem tampering
+ * between stages.
+ *
+ * @param imagesToBuild  List of image names (e.g. ['alpine', 'java/maven']).
+ * @return Map with keys: successful, failed, logs, durations.
+ */
 def generateDockerfiles(imagesToBuild) {
     def successful = []
     def failed = []
     def logs = [:]
     def durations = [:]
+    def checksums = [:]
 
     imagesToBuild.each { image ->
         def startTime = System.currentTimeMillis()
@@ -30,23 +40,19 @@ def generateDockerfiles(imagesToBuild) {
                     imageData.versions.each { version ->
                         def dockerfilePath = "generated/${image}/${version.version}/Dockerfile"
                         if (fileExists(dockerfilePath)) {
-                            def content = readFile file: dockerfilePath
-                            echo "=== Contents of ${dockerfilePath} ===\n${content}\n=== End of ${dockerfilePath} ==="
-                            log += "\n=== Contents of ${dockerfilePath} ===\n${content}\n=== End of ${dockerfilePath} ==="
+                            // Record checksum for integrity verification in Build stage.
+                            // Dockerfile contents are intentionally NOT echoed to the console
+                            // to avoid log flooding on large multi-version builds.
+                            def checksum = sh(
+                                script: "sha256sum '${dockerfilePath}' | awk '{print \$1}'",
+                                returnStdout: true
+                            ).trim()
+                            checksums[dockerfilePath] = checksum
+                            echo "✓ Checksum recorded for ${dockerfilePath}: ${checksum}"
                         } else {
                             echo "WARNING: Dockerfile not found at ${dockerfilePath}"
                             log += "\nWARNING: Dockerfile not found at ${dockerfilePath}"
                         }
-                    }
-                } else {
-                    def dockerfilePath = "generated/${image}/Dockerfile"
-                    if (fileExists(dockerfilePath)) {
-                        def content = readFile file: dockerfilePath
-                        echo "=== Contents of ${dockerfilePath} ===\n${content}\n=== End of ${dockerfilePath} ==="
-                        log += "\n=== Contents of ${dockerfilePath} ===\n${content}\n=== End of ${dockerfilePath} ==="
-                    } else {
-                        echo "WARNING: Dockerfile not found at ${dockerfilePath}"
-                        log += "\nWARNING: Dockerfile not found at ${dockerfilePath}"
                     }
                 }
             } else {
@@ -63,12 +69,45 @@ def generateDockerfiles(imagesToBuild) {
         durations[image] = "${(System.currentTimeMillis() - startTime) / 1000}s"
     }
 
+    env.DOCKERFILE_CHECKSUMS = writeJSON returnText: true, json: checksums
+
     return [
         successful: successful,
         failed: failed,
         logs: logs,
         durations: durations
     ]
+}
+
+/**
+ * Verifies SHA256 checksums of all generated Dockerfiles against the values
+ * recorded during the generation stage. Fails the build if any mismatch is found.
+ */
+def verifyDockerfileChecksums() {
+    if (!env.DOCKERFILE_CHECKSUMS) {
+        echo "WARNING: No checksum data found (DOCKERFILE_CHECKSUMS not set). Skipping verification."
+        return
+    }
+    def checksums = readJSON text: env.DOCKERFILE_CHECKSUMS
+    def mismatches = []
+    checksums.each { path, expectedHash ->
+        if (!fileExists(path)) {
+            mismatches.add("MISSING: ${path}")
+            return
+        }
+        def actualHash = sh(
+            script: "sha256sum '${path}' | awk '{print \$1}'",
+            returnStdout: true
+        ).trim()
+        if (actualHash != expectedHash) {
+            mismatches.add("TAMPERED: ${path} (expected ${expectedHash}, got ${actualHash})")
+        }
+    }
+    if (mismatches) {
+        error("Dockerfile integrity check failed — possible filesystem tampering between stages:\n" +
+              mismatches.join('\n'))
+    }
+    echo "✓ All ${checksums.size()} Dockerfile checksums verified"
 }
 
 return this
