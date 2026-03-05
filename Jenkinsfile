@@ -18,7 +18,11 @@ def reportGenerator
 pipeline {
     agent {
         node {
-            label 'slave'
+            // Required agent capabilities: docker, docker buildx, git, python3, sha256sum
+            label 'docker-builder'
+            // Unique workspace per build number prevents parallel pipeline runs
+            // on the same agent from writing to the same generated/ directory.
+            customWorkspace "workspace/${env.JOB_NAME}/${env.BUILD_NUMBER}"
         }
     }
 
@@ -335,6 +339,13 @@ pipeline {
                     def generationResult = PIPELINE_REPORT.generation
                     def imagesToBuildFiltered = imagesToBuild.findAll {
                         generationResult.successful.contains(it)
+                    }
+                    if (!imagesToBuild.isEmpty()
+                        && (generationResult?.successful instanceof List)
+                        && !generationResult.successful.isEmpty()
+                        && imagesToBuildFiltered.isEmpty()) {
+                        error("Internal mismatch: no images scheduled for build after filtering by generation results. " +
+                              "imagesToBuild=${imagesToBuild}, generated=${generationResult.successful}")
                     }
                     def buildResult = imageBuilder.buildImages(versionsData, imagesToBuildFiltered, params)
                     PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'build', [

@@ -2,4 +2,3 @@ name: docker-node-{{ version }}-alpine
 packages:
   - bash
   - ca-certificates
-

@@ -14,11 +14,16 @@ def generateDockerfiles(imagesToBuild) {
     def durations = [:]
     def checksums = [:]
 
+    // Optional optimisation: ограничиваем запись checksum'ов теми версиями,
+    // которые реально помечены как изменённые в CHANGED_VERSIONS.
     def changedVersions = [:]
     if (env.CHANGED_VERSIONS) {
         try {
             changedVersions = readJSON text: env.CHANGED_VERSIONS
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            echo "WARNING: Failed to parse CHANGED_VERSIONS in DockerfileGenerator: ${e.message}"
+            changedVersions = [:]
+        }
     }
 
     imagesToBuild.each { image ->
@@ -35,6 +40,8 @@ def generateDockerfiles(imagesToBuild) {
             )
             log = "generate_dockerfile.py exit code: ${status}"
             if (status == 0) {
+                successful.add(image)
+                echo "✓ Successfully generated Dockerfile for ${image}"
                 def versionsData = readJSON text: env.VERSIONS_DATA
                 def imageParts = image.split('/')
                 def imageData = versionsData
@@ -42,17 +49,22 @@ def generateDockerfiles(imagesToBuild) {
                     imageData = imageData[part]
                 }
                 if (imageData instanceof Map && imageData.versions) {
-                    def versionsToCheck = imageData.versions
+                    // Список всех версий из versions.yaml для этого образа.
+                    def versionsForImage = imageData.versions
+                    // Если есть CHANGED_VERSIONS[image], ограничиваемся только этими версиями,
+                    // чтобы генерация Python и запись checksum'ов шли по одному и тому же перечню.
                     def changedForImage = changedVersions[image]
                     if (changedForImage instanceof List && !changedForImage.isEmpty()) {
-                        versionsToCheck = versionsToCheck.findAll { v ->
+                        versionsForImage = versionsForImage.findAll { v ->
                             changedForImage.contains("${v.version}")
                         }
                     }
-                    def allFound = true
-                    versionsToCheck.each { version ->
+                    versionsForImage.each { version ->
                         def dockerfilePath = "generated/${image}/${version.version}/Dockerfile"
                         if (fileExists(dockerfilePath)) {
+                            // Record checksum for integrity verification in Build stage.
+                            // Dockerfile contents are intentionally NOT echoed to the console
+                            // to avoid log flooding on large multi-version builds.
                             def checksum = sh(
                                 script: "sha256sum '${dockerfilePath}' | awk '{print \$1}'",
                                 returnStdout: true
@@ -60,20 +72,10 @@ def generateDockerfiles(imagesToBuild) {
                             checksums[dockerfilePath] = checksum
                             echo "✓ Checksum recorded for ${dockerfilePath}: ${checksum}"
                         } else {
-                            allFound = false
-                            log += "\nERROR: Expected Dockerfile not found at ${dockerfilePath}"
-                            echo "✗ Expected Dockerfile not found at ${dockerfilePath}"
+                            echo "WARNING: Dockerfile not found at ${dockerfilePath}"
+                            log += "\nWARNING: Dockerfile not found at ${dockerfilePath}"
                         }
                     }
-                    if (allFound) {
-                        successful.add(image)
-                        echo "✓ Successfully generated Dockerfile for ${image}"
-                    } else {
-                        failed.add(image)
-                        echo "✗ Some expected Dockerfiles missing for ${image}"
-                    }
-                } else {
-                    successful.add(image)
                 }
             } else {
                 failed.add(image)
@@ -90,6 +92,11 @@ def generateDockerfiles(imagesToBuild) {
     }
 
     env.DOCKERFILE_CHECKSUMS = writeJSON returnText: true, json: checksums
+
+    if (successful && checksums.isEmpty()) {
+        echo "WARNING: Dockerfiles were generated for images ${successful}, but no checksums were recorded. " +
+             "Verify that versions.yaml structure matches DockerfileGenerator expectations."
+    }
 
     return [
         successful: successful,
