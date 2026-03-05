@@ -132,6 +132,20 @@ class TestGenerateDockerfile:
         content = generate_dockerfile('alpine', version_data, COMMON_CONFIG, jinja_env)
         assert 'curl' in content
 
+    def test_image_config_applied_alongside_version_config(self, repo_root, jinja_env, monkeypatch):
+        """Image config values should persist when version config overrides a different field."""
+        monkeypatch.chdir(repo_root)
+        (repo_root / 'images' / 'alpine' / 'config.yaml').write_text(
+            'name: docker-alpine\nworkdir: /image-workdir\n'
+        )
+        ver_dir = repo_root / 'images' / 'alpine' / 'latest'
+        ver_dir.mkdir(parents=True)
+        (ver_dir / 'config.yaml').write_text('packages:\n  - curl\n')
+        version_data = {'version': 'latest', 'base_image': 'alpine:3.20'}
+        content = generate_dockerfile('alpine', version_data, COMMON_CONFIG, jinja_env)
+        assert 'curl' in content, "version config packages must be applied"
+        assert '/image-workdir' in content, "image config workdir must persist through version merge"
+
     def test_version_data_overrides_workdir(self, repo_root, jinja_env, monkeypatch):
         monkeypatch.chdir(repo_root)
         version_data = {'version': 'latest', 'base_image': 'alpine:3.20', 'workdir': '/custom'}

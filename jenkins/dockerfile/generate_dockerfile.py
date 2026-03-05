@@ -31,7 +31,7 @@ def generate_dockerfile(image_name: str, version_data: dict, common_config: dict
 
     Config merge order (each level overrides the previous):
       1. common/config.yaml [default] section
-      2. images/<image>/config.yaml  (skipped if version-level config exists)
+      2. images/<image>/config.yaml
       3. images/<image>/<version>/config.yaml
       4. version entry from versions.yaml
 
@@ -41,20 +41,19 @@ def generate_dockerfile(image_name: str, version_data: dict, common_config: dict
     version = version_data['version']
     final_config = deep_merge({}, common_config.get('default', {}))
 
-    # Config check for specific version
+    image_config_path = f"images/{image_name}/config.yaml"
+    if os.path.exists(image_config_path):
+        with open(image_config_path, 'r') as f:
+            image_config = yaml.safe_load(f)
+            if image_config:
+                final_config = deep_merge(final_config, image_config)
+
     version_config_path = f"images/{image_name}/{version}/config.yaml"
     if os.path.exists(version_config_path):
         with open(version_config_path, 'r') as f:
             version_config = yaml.safe_load(f)
             if version_config:
                 final_config = deep_merge(final_config, version_config)
-    else:
-        image_config_path = f"images/{image_name}/config.yaml"
-        if os.path.exists(image_config_path):
-            with open(image_config_path, 'r') as f:
-                image_config = yaml.safe_load(f)
-                if image_config:
-                    final_config = deep_merge(final_config, image_config)
 
     final_config = deep_merge(final_config, version_data)
     final_config['name'] = f"{image_name.replace('/', '-')}-{version}"
@@ -107,6 +106,7 @@ if __name__ == "__main__":
 
     allowed_versions = changed_versions.get(image_name)
 
+    generated_count = 0
     for version_data in versions:
         if isinstance(allowed_versions, list) and allowed_versions:
             if str(version_data.get('version')) not in [str(v) for v in allowed_versions]:
@@ -116,4 +116,13 @@ if __name__ == "__main__":
         os.makedirs(version_dir, exist_ok=True)
         with open(f"{version_dir}/Dockerfile", 'w') as f:
             f.write(dockerfile_content)
+        generated_count += 1
         print(f"Generated Dockerfile for {image_name}:{version_data['version']}")
+
+    if generated_count == 0:
+        print(
+            f"ERROR: No Dockerfiles generated for '{image_name}'. "
+            f"CHANGED_VERSIONS filter {allowed_versions} did not match any version in versions.yaml.",
+            file=sys.stderr,
+        )
+        sys.exit(1)

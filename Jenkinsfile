@@ -93,7 +93,7 @@ pipeline {
         )
         string(
             name: 'EXTRA_REGISTRIES',
-            defaultValue: 'docker-mf-middle-rc-local.nexign.com',
+            defaultValue: 'docker-all-local.nexing.com',
             description: 'Comma-separated list of additional registries to replicate images to (same path and tag).'
         )
     }

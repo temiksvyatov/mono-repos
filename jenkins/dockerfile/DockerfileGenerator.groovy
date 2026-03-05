@@ -14,6 +14,13 @@ def generateDockerfiles(imagesToBuild) {
     def durations = [:]
     def checksums = [:]
 
+    def changedVersions = [:]
+    if (env.CHANGED_VERSIONS) {
+        try {
+            changedVersions = readJSON text: env.CHANGED_VERSIONS
+        } catch (Exception ignored) {}
+    }
+
     imagesToBuild.each { image ->
         def startTime = System.currentTimeMillis()
         def log = ""
@@ -28,8 +35,6 @@ def generateDockerfiles(imagesToBuild) {
             )
             log = "generate_dockerfile.py exit code: ${status}"
             if (status == 0) {
-                successful.add(image)
-                echo "✓ Successfully generated Dockerfile for ${image}"
                 def versionsData = readJSON text: env.VERSIONS_DATA
                 def imageParts = image.split('/')
                 def imageData = versionsData
@@ -37,12 +42,17 @@ def generateDockerfiles(imagesToBuild) {
                     imageData = imageData[part]
                 }
                 if (imageData instanceof Map && imageData.versions) {
-                    imageData.versions.each { version ->
+                    def versionsToCheck = imageData.versions
+                    def changedForImage = changedVersions[image]
+                    if (changedForImage instanceof List && !changedForImage.isEmpty()) {
+                        versionsToCheck = versionsToCheck.findAll { v ->
+                            changedForImage.contains("${v.version}")
+                        }
+                    }
+                    def allFound = true
+                    versionsToCheck.each { version ->
                         def dockerfilePath = "generated/${image}/${version.version}/Dockerfile"
                         if (fileExists(dockerfilePath)) {
-                            // Record checksum for integrity verification in Build stage.
-                            // Dockerfile contents are intentionally NOT echoed to the console
-                            // to avoid log flooding on large multi-version builds.
                             def checksum = sh(
                                 script: "sha256sum '${dockerfilePath}' | awk '{print \$1}'",
                                 returnStdout: true
@@ -50,10 +60,20 @@ def generateDockerfiles(imagesToBuild) {
                             checksums[dockerfilePath] = checksum
                             echo "✓ Checksum recorded for ${dockerfilePath}: ${checksum}"
                         } else {
-                            echo "WARNING: Dockerfile not found at ${dockerfilePath}"
-                            log += "\nWARNING: Dockerfile not found at ${dockerfilePath}"
+                            allFound = false
+                            log += "\nERROR: Expected Dockerfile not found at ${dockerfilePath}"
+                            echo "✗ Expected Dockerfile not found at ${dockerfilePath}"
                         }
                     }
+                    if (allFound) {
+                        successful.add(image)
+                        echo "✓ Successfully generated Dockerfile for ${image}"
+                    } else {
+                        failed.add(image)
+                        echo "✗ Some expected Dockerfiles missing for ${image}"
+                    }
+                } else {
+                    successful.add(image)
                 }
             } else {
                 failed.add(image)

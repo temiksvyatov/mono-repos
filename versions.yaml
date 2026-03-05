@@ -48,18 +48,20 @@ node:
       base_image: docker.nexign.com/node:22-alpine
       image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/node/docker-node{version}-alpine:latest"
 java:
+  multi_registry: true
   maven:
     image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/java/docker-java{version}maven-alpine:latest"
+    extra_tags: ["shared/microservices/infra/build/java/docker-java{version}maven-alpine:latest"]
     versions:
       - version: '17'
         base_image: docker.nexign.com/maven:3-eclipse-temurin-17-alpine
-        multi_registry: true
       - version: '21'
         base_image: docker.nexign.com/maven:3-eclipse-temurin-21-alpine
       - version: '25'
         base_image: docker.nexign.com/maven:3-eclipse-temurin-25-alpine
   gradle:
     image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/java/docker-java{version}gradle-alpine:latest"
+    extra_tags: ["shared/microservices/infra/build/java/docker-java{version}gradle-alpine:latest"]
     versions:
       - version: '17'
         base_image: docker.nexign.com/gradle:jdk17-alpine
@@ -72,7 +74,6 @@ jre:
   versions:
     - version: '17'
       base_image: docker.nexign.com/eclipse-temurin:17-jre-alpine
-      multi_registry: true
     - version: '21'
       base_image: docker.nexign.com/eclipse-temurin:21-jre-alpine
     - version: '25'
