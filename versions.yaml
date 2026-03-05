@@ -1,0 +1,72 @@
+alpine:
+  image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/docker-base-alpine:{version}"
+  versions:
+    - version: latest
+      base_image: docker.nexign.com/alpine:latest
+golang:
+  image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/golang/docker-golang-alpine:{version}"
+  versions:
+    - version: latest
+      base_image: docker.nexign.com/golang:1-alpine
+node:
+  image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/node/docker-node{version}-alpine:latest"
+  versions:
+    - version: 16
+      base_image: docker.nexign.com/node:16-alpine
+    - version: 18
+      base_image: docker.nexign.com/node:18-alpine
+    - version: 20
+      base_image: docker.nexign.com/node:20-alpine
+    - version: 22
+      base_image: docker.nexign.com/node:22-alpine
+      image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/node/docker-node{version}-alpine:latest"
+java:
+  maven:
+    image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/java/docker-java{version}maven-alpine:latest"
+    versions:
+      - version: 17
+        base_image: docker.nexign.com/maven:3-eclipse-temurin-17-alpine
+        multi_registry: true
+      - version: 21
+        base_image: docker.nexign.com/maven:3-eclipse-temurin-21-alpine
+      - version: 25
+        base_image: docker.nexign.com/maven:3-eclipse-temurin-25-alpine
+  gradle:
+    image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/java/docker-java{version}gradle-alpine:latest"
+    versions:
+      - version: 17
+        base_image: docker.nexign.com/gradle:jdk17-alpine
+      - version: 21
+        base_image: docker.nexign.com/gradle:jdk21-alpine
+      - version: 25
+        base_image: docker.nexign.com/gradle:jdk25-alpine
+jre:
+  image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/java/docker-java{version}jre-alpine:latest"
+  versions:
+    - version: 17
+      base_image: docker.nexign.com/eclipse-temurin:17-jre-alpine
+    - version: 21
+      base_image: docker.nexign.com/eclipse-temurin:21-jre-alpine
+    - version: 25
+      base_image: docker.nexign.com/eclipse-temurin:25-jre-alpine
+python:
+  image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/python/docker-python{version}-ubi:latest"
+  versions:
+    - version: 310
+      base_image: docker.nexign.com/ubi9/ubi-minimal:latest
+      python_full_version: '3.10.11'
+      python_minor_version: '3.10'
+    - version: 311
+      base_image: docker.nexign.com/ubi9/ubi-minimal:latest
+      python_full_version: '3.11.10'
+      python_minor_version: '3.11'
+    - version: 314
+      base_image: docker.nexign.com/ubi9/ubi-minimal:latest
+      python_full_version: '3.14.2'
+      python_minor_version: '3.14'
+nginx:
+  image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/nginx/docker-nginx-alpine:{version}"
+  versions:
+    - version: latest
+      base_image: docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/base/docker-base-alpine:latest
+

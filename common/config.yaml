@@ -1,0 +1,28 @@
+default:
+  package_manager: apk
+  registry: docker-mf-middle-dev-local.nexign.com
+  target_registry: microservices/infra/runtime/base
+  packages:
+    - ca-certificates
+    - bash
+    - curl
+  env:
+    LANG: en_US.UTF-8
+    LANGUAGE: en_US:en
+    LC_ALL: en_US.UTF-8
+  users:
+    - name: mf-user
+      uid: 11200
+    - name: jenkins
+      uid: 11160
+  copy:
+    - source: common/files/certs/*
+      dest: /usr/local/share/ca-certificates/
+    - source: common/files/timezones/Moscow
+      dest: /usr/share/zoneinfo/Europe/Moscow
+  run:
+    - update-ca-certificates
+    - mkdir -p /data/cache && chmod 777 /data/cache
+    - ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
+  workdir: /data/app
+  user: 11200

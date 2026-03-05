@@ -1,0 +1,46 @@
+name: docker-java-{{ version }}-jre-alpine
+packages:
+  - git
+  - ca-certificates
+  - curl
+  - bash
+  - openssh
+java_certs:
+  - alias: megaACME1
+    file: megafon-acme-01.crt
+  - alias: megaACME2
+    file: megafon-acme-02.pem
+  - alias: megaROOTCA
+    file: megafon-ca.crt
+  - alias: megaSUBCA1
+    file: megafon-subca012020.crt
+  - alias: megaSUBCA2
+    file: megafon-subca022020.crt
+  - alias: megaSUBCA3
+    file: megafon-subca032020.crt
+  - alias: megaSUBCA4
+    file: megafon-subca042020.crt
+  - alias: mfactory
+    file: mfactory.nxcloud.nexign.com.crt
+  - alias: minio2
+    file: minio2.crt
+  - alias: nexign1
+    file: nexign-01.crt
+  - alias: nexign2
+    file: nexign-02.crt
+  - alias: rootCA
+    file: root-ca.crt
+  - alias: subCA03
+    file: sub-ca03.crt
+  - alias: megaUNIX
+    file: unixrepo-megafon-ru.crt
+  - alias: megaVASP
+    file: vasp.crt
+  - alias: yotaROOTCA
+    file: yota-ca-00.crt
+  - alias: yotaSUBCA1
+    file: yota-ca-01.crt
+  - alias: rootMFDMZ
+    file: root-mfdmz-ca.crt
+  - alias: subMFDMZ
+    file: sub-mfdmz-ca01.crt

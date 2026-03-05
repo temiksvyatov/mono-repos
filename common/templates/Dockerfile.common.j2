@@ -1,0 +1,38 @@
+FROM {{ base_image }} AS runtime
+LABEL NAME={{ name }}
+{# Copying general files #}
+{% for copy_item in copy %}
+COPY {{ copy_item.source }} {{ copy_item.dest }}
+{% endfor %}
+{# Prepare alpine repos #}
+{% block alpine_repo_setup %}{% endblock %}
+{# Setup packages #}
+{% block package_installation %}
+    {% if package_manager == 'apk' %}
+        USER 0
+        RUN apk add --no-cache {{ packages | join(' ') }}
+    {% elif package_manager == 'microdnf' %}
+        RUN microdnf install -y --nodocs {{ packages | join(' ') }}
+    {% elif package_manager == 'dnf' %}
+        RUN dnf install -y --nodocs {{ packages | join(' ') }}
+    {% endif %}
+{% endblock %}
+{# Post-installation steps #}
+{% block post_install %}
+    {% for run_cmd in run %}
+        RUN {{ run_cmd }}
+    {% endfor %}
+{% endblock %}
+{# User creation #}
+{% if users %}
+RUN {% for user in users %} adduser -u {{ user.uid }} {{ user.name }} -D {% if not loop.last %} && {% endif %}{% endfor %}
+{% endif %}
+{# ENVs setup #}
+{% for key, value in env.items() %}
+ENV {{ key }}='{{ value }}'
+{% endfor %}
+{% block extra_env %}{% endblock %}
+WORKDIR {{ workdir }}
+USER {{ user }}
+{# Specific image instructions #}
+{% block specific %}{% endblock %}

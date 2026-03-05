@@ -1,0 +1,9 @@
+name: docker-nginx-alpine
+packages:
+  - nginx
+copy:
+  - source: common/files/nginx.conf
+    dest: /etc/nginx/nginx.conf
+  - source: common/files/default.conf
+    dest: /etc/nginx/http.d/default.conf
+users:

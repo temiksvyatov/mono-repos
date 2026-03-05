@@ -1,0 +1,15 @@
+{% extends "common/templates/Dockerfile.common.j2" %}
+
+{% block alpine_repo_setup %}
+RUN ALPINE_VERSION_MINOR=$(cat /etc/alpine-release) && \
+    echo "https://artifactory.nexign.com:443/artifactory/alpine-alpine-remote/v${ALPINE_VERSION_MINOR%.*}/main" > /etc/apk/repositories &&\
+    echo "https://artifactory.nexign.com:443/artifactory/alpine-alpine-remote/v${ALPINE_VERSION_MINOR%.*}/community" >> /etc/apk/repositories &&\
+    apk update
+{% endblock %}
+
+{% block post_install %}
+{{ super() }}
+RUN apk upgrade libssl3 libcrypto3 && \
+    ln -s /lib/libc.musl-x86_64.so.1 /lib/ld-linux-x86-64.so.2
+{% endblock %}
+

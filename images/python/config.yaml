@@ -1,0 +1,41 @@
+name: docker-python-{{ version }}-ubi
+package_manager: microdnf
+copy:
+  - source: common/files/pip.conf
+    dest: /etc/pip.conf
+  - source: common/files/certs/*
+    dest: /etc/pki/ca-trust/source/anchors/
+packages:
+  - make
+  - gcc
+  - automake
+  - tar
+  - git
+  - gcc-c++
+  - libcurl-devel
+  - libpq-devel
+  - libxml2-devel
+  - libxslt-devel
+  - openssl-devel
+  - bzip2-devel
+  - libffi-devel
+  - zlib-devel
+  - findutils
+  - patch
+  - httpd-devel
+  - mod_ssl
+  - mod_auth_gssapi
+  - mod_ldap
+  - mod_session
+  - atlas-devel
+  - gcc-gfortran
+  - libtool-ltdl
+  - ncurses-devel
+  - sqlite-devel
+  - kernel-ml
+  - kernel-ml-core
+  - kernel-ml-modules
+  - kernel-ml-modules-extra
+users:
+python_registry: https://artifactory.nexign.com:443/artifactory/python-ftp-remote
+

@@ -1,0 +1,10 @@
+name: docker-golang-alpine
+packages:
+  - ca-certificates
+  - bash
+  - curl
+  - git
+  - make
+  - build-base
+workdir: /data/build
+user: 11160

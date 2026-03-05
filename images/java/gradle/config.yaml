@@ -1,0 +1,7 @@
+name: docker-java-{{ version }}-gradle-alpine
+packages:
+  - ca-certificates
+  - bash
+  - make
+  - curl
+  - jq
