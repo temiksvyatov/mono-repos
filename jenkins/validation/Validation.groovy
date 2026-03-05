@@ -93,7 +93,8 @@ def validateImageDirectories(imagesToBuild) {
 
 /**
  * Validates YAML syntax of all config.yaml files and Jinja2 syntax of all Dockerfile.j2
- * templates for the given images. Requires python3 with jinja2 and PyYAML on PATH.
+ * templates for the given images. Creates an isolated venv and installs dependencies from
+ * jenkins/dockerfile/requirements.txt (PyYAML, jinja2). Requires python3 on PATH.
  * @param imagesToBuild  List of image names to validate.
  */
 def validateTemplateSyntax(imagesToBuild) {
@@ -147,8 +148,9 @@ print(f'Syntax validation passed for {len(images)} image(s)')
     def imageArgs = imagesToBuild.collect { "'${it}'" }.join(' ')
     def validationStatus = sh(
         script: """
-            source venv/bin/activate 2>/dev/null || true
-            pip3 install PyYAML jinja2
+            python3 -m venv /tmp/validation-venv
+            . /tmp/validation-venv/bin/activate
+            pip install --quiet -r jenkins/dockerfile/requirements.txt
             python3 -c "${validationScript.replace('"', '\\"')}" ${imageArgs}
         """,
         returnStatus: true
