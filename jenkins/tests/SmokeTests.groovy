@@ -149,22 +149,22 @@ def testJavaImage(image) {
 
     def javacCheck = requiresJavac
         ? 'javac -version'
-        : 'javac -version 2>&1 || echo "javac not available (JRE-only image, expected)"'
+        : '{ javac -version 2>&1 || echo "javac not available (JRE-only image, expected)"; }'
 
     def output = ""
     def status = 0
-    withEnv(["SMOKE_IMAGE=${image}", "JAVAC_CHECK=${javacCheck}"]) {
+    withEnv(["SMOKE_IMAGE=${image}"]) {
         try {
             output = sh(
-                script: '''
-                    timeout 30 docker run --rm "$SMOKE_IMAGE" sh -c "
+                script: """
+                    timeout 30 docker run --rm "\$SMOKE_IMAGE" sh -c '
                         java -version &&
-                        eval \\"$JAVAC_CHECK\\" &&
+                        ${javacCheck} &&
                         whoami &&
                         pwd &&
-                        echo 'Java smoke test passed'
-                    "
-                ''',
+                        echo "Java smoke test passed"
+                    '
+                """,
                 returnStdout: true
             )
         } catch (Exception e) {

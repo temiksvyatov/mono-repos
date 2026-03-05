@@ -2,8 +2,11 @@
 {% block package_installation %}
 USER 0
 RUN rm -f /etc/yum.repos.d/* && \
-    curl --connect-timeout 30 --fail https://repo.nexign.com/scripts/add-ubi9-repo.sh | sh && \
-    curl --connect-timeout 30 --fail https://repo.nexign.com/scripts/add-elrepo-repo.sh | sh && \
+    curl --connect-timeout 30 --retry 3 --retry-delay 5 --fail -o /tmp/add-ubi9-repo.sh https://repo.nexign.com/scripts/add-ubi9-repo.sh && \
+    sh /tmp/add-ubi9-repo.sh && \
+    curl --connect-timeout 30 --retry 3 --retry-delay 5 --fail -o /tmp/add-elrepo-repo.sh https://repo.nexign.com/scripts/add-elrepo-repo.sh && \
+    sh /tmp/add-elrepo-repo.sh && \
+    rm -f /tmp/add-ubi9-repo.sh /tmp/add-elrepo-repo.sh && \
     update-ca-trust force-enable && \
     update-ca-trust extract && \
     {{ package_manager }} install -y --nodocs {{ packages | join(' ') }} && \

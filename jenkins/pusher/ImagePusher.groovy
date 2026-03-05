@@ -96,26 +96,25 @@ private String verifyPushedDigest(String tag) {
 /**
  * Replicates baseTag to each extraTag using docker buildx imagetools.
  *
- * Each target registry is authenticated separately with the provided credentialsId
- * before replication. This is necessary because docker.withRegistry() in pushImages
- * only authenticates to the primary registry — extra registries require their own login.
- * All registries share the same credentials.
+ * Uses withCredentials + explicit docker login to authenticate to BOTH the source
+ * and target registries simultaneously. Nested docker.withRegistry() cannot be used
+ * here because it overwrites the Docker config, removing auth for the source registry.
  *
  * @param baseTag       Fully-qualified source image tag (already pushed to primary registry).
  * @param extraTags     List of fully-qualified target tags on extra registries.
- * @param credentialsId Jenkins credentials ID to use for each extra registry login.
+ * @param credentialsId Jenkins credentials ID to use for registry login.
  * @return Log string with replication results.
  */
 private String replicateToExtraRegistries(String baseTag, List extraTags, String credentialsId, successful, failed) {
     def log = ""
+    def sourceRegistry = baseTag.split('/')[0]
     extraTags.each { tag ->
         echo "Replicating image ${baseTag} to ${tag} via docker buildx imagetools"
-        // Extract registry hostname from the target tag (everything before the first '/')
         def targetRegistry = tag.split('/')[0]
         try {
-            // Authenticate to the target extra registry before pushing.
-            // docker.withRegistry expects a full URL; the protocol prefix is required.
-            docker.withRegistry("https://${targetRegistry}", credentialsId) {
+            withCredentials([usernamePassword(credentialsId: credentialsId, usernameVariable: 'REG_USER', passwordVariable: 'REG_PASS')]) {
+                sh "echo \$REG_PASS | docker login -u \$REG_USER --password-stdin https://${sourceRegistry}"
+                sh "echo \$REG_PASS | docker login -u \$REG_USER --password-stdin https://${targetRegistry}"
                 def replicateResult = sh(
                     script: "docker buildx imagetools create -t ${tag} ${baseTag}",
                     returnStatus: true
