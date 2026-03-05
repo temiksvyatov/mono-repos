@@ -2,7 +2,7 @@
 {% block package_installation %}
 USER 0
 RUN rm -f /etc/yum.repos.d/* && \
-    curl --connect-timeout 30 --fail htts://repo.nexign.com/scripts/add-ubi9-repo.sh | sh && \
+    curl --connect-timeout 30 --fail http://repo.nexign.com/scripts/add-ubi9-repo.sh | sh && \
     curl --connect-timeout 30 --fail http://repo.nexign.com/scripts/add-elrepo-repo.sh | sh && \
     update-ca-trust force-enable && \
     update-ca-trust extract && \
