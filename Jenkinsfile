@@ -18,11 +18,7 @@ def reportGenerator
 pipeline {
     agent {
         node {
-            // Required agent capabilities: docker, docker buildx, git, python3, sha256sum
-            label 'docker-builder'
-            // Unique workspace per build number prevents parallel pipeline runs
-            // on the same agent from writing to the same generated/ directory.
-            customWorkspace "workspace/${env.JOB_NAME}/${env.BUILD_NUMBER}"
+            label 'slave'
         }
     }
 
