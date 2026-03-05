@@ -72,6 +72,7 @@ jre:
   versions:
     - version: '17'
       base_image: docker.nexign.com/eclipse-temurin:17-jre-alpine
+      multi_registry: true
     - version: '21'
       base_image: docker.nexign.com/eclipse-temurin:21-jre-alpine
     - version: '25'
