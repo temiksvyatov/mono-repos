@@ -46,7 +46,8 @@ node:
       base_image: docker.nexign.com/node:20-alpine
     - version: '22'
       base_image: docker.nexign.com/node:22-alpine
-      image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/node/docker-node{version}-alpine:latest"
+      # extra_tags:
+      #   - "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/node/docker-node{version}-alpine:latest"
 java:
   multi_registry: true
   maven:
