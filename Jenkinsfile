@@ -333,19 +333,15 @@ pipeline {
                     def versionsData = readJSON text: env.VERSIONS_DATA
                     def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
                     def generationResult = PIPELINE_REPORT.generation
-                    echo "Build Images debug: imagesToBuild from validation: ${imagesToBuild}"
-                    echo "Build Images debug: Dockerfiles generated successfully for: ${generationResult?.successful}"
                     def imagesToBuildFiltered = imagesToBuild.findAll {
                         generationResult.successful.contains(it)
                     }
-                    echo "Build Images debug: images scheduled for build after filtering: ${imagesToBuildFiltered}"
                     if (!imagesToBuild.isEmpty()
                         && (generationResult?.successful instanceof List)
                         && !generationResult.successful.isEmpty()
                         && imagesToBuildFiltered.isEmpty()) {
                         error("Internal mismatch: no images scheduled for build after filtering by generation results. " +
-                              "imagesToBuild=${imagesToBuild}, generated=${generationResult.successful}, " +
-                              "CHANGED_VERSIONS=${env.CHANGED_VERSIONS}")
+                              "imagesToBuild=${imagesToBuild}, generated=${generationResult.successful}")
                     }
                     def buildResult = imageBuilder.buildImages(versionsData, imagesToBuildFiltered, params)
                     PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'build', [
