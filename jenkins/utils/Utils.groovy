@@ -1,19 +1,91 @@
 def getChangedFiles() {
     try {
+        // Prefer Jenkins-provided commit range over hardcoded HEAD~1 to avoid issues with:
+        // - first build on branch (no previous commit),
+        // - shallow clones where HEAD~1 is unavailable,
+        // - rewritten history / force-push.
+        def from = env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: env.GIT_PREVIOUS_COMMIT
+        def to = env.GIT_COMMIT
+
+        if (!from || !to) {
+            echo "No previous commit detected (from='${from}', to='${to}'). " +
+                 "Skipping diff-based detection and falling back to parameter-driven image selection."
+            return []
+        }
+
+        def cmd = "git diff --name-only ${from} ${to}"
+        echo "Calculating changed files via: ${cmd}"
         def changes = sh(
-            script: 'git diff --name-only HEAD~1 HEAD || echo ""',
+            script: "${cmd} || echo ''",
             returnStdout: true
         ).trim()
-        return changes ? changes.split('\n') : []
+
+        def files = changes ? changes.split('\n').findAll { it } : []
+        echo "Detected changed files: ${files}"
+        return files
     } catch (Exception e) {
-        echo "Failed to retrieve changed files: ${e.message}"
+        echo "Failed to retrieve changed files: ${e.message}. Falling back to parameter-driven image selection."
         return []
     }
 }
 
 def getChangedImages(changedFiles) {
     def changedImages = []
+    def allImages = []
+
+    // Some files affect all or many images regardless of their location under images/.
+    def needsGlobalMapping = changedFiles.any { file ->
+        file == 'versions.yaml' ||
+        file == 'common/config.yaml' ||
+        file == 'common/templates/Dockerfile.common.j2' ||
+        file.startsWith('common/files/certs/')
+    }
+
+    if (needsGlobalMapping) {
+        try {
+            def versionsYaml = readYaml file: 'versions.yaml'
+            versionsYaml.each { key, value ->
+                if (value instanceof Map && value.versions) {
+                    // Root image with versions, e.g. alpine, golang, node, python, nginx, jre
+                    allImages.add(key)
+                } else if (value instanceof Map) {
+                    // Nested images, e.g. java/maven, java/gradle
+                    value.each { subKey, subValue ->
+                        if (subValue instanceof Map && subValue.versions) {
+                            allImages.add("${key}/${subKey}")
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            echo "WARNING: Failed to resolve full image list from versions.yaml for common changes: ${e.message}"
+            allImages = []
+        }
+    }
+
     changedFiles.each { file ->
+        // Python build helper script affects all python images even without Dockerfile/config changes.
+        if (file == 'images/python/build-python.sh') {
+            changedImages.add('python')
+        }
+
+        // Common runtime/config files mapped to specific images.
+        if (file == 'common/files/pip.conf') {
+            changedImages.add('python')
+        }
+        if (file == 'common/files/nginx.conf') {
+            changedImages.add('nginx')
+        }
+
+        // Files that affect all images: versions.yaml, common config/template, shared certs.
+        if (needsGlobalMapping &&
+            (file == 'versions.yaml' ||
+             file == 'common/config.yaml' ||
+             file == 'common/templates/Dockerfile.common.j2' ||
+             file.startsWith('common/files/certs/'))) {
+            changedImages.addAll(allImages)
+        }
+
         if (file.startsWith('images/')) {
             def parts = file.split('/')
             if (parts.length >= 2) {
@@ -35,11 +107,10 @@ def getChangedImages(changedFiles) {
                         (parts[4] == 'Dockerfile.j2' || parts[4] == 'config.yaml')) {
                     changedImages.add("${parts[1]}/${parts[2]}")
                 }
-                changedImages = changedImages.unique()
             }
         }
     }
-    return changedImages
+    return changedImages.unique()
 }
 
 def getChangedVersions(changedFiles) {
