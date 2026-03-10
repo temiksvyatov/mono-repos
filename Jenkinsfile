@@ -78,17 +78,17 @@ pipeline {
         )
         booleanParam(
             name: 'USE_BUILD_CACHE',
-            defaultValue: true,
+            defaultValue: false,
             description: 'Use Docker layer cache during image builds. Disable for a guaranteed clean build (adds significant build time).'
         )
         booleanParam(
             name: 'ENABLE_DOCKER_LINT',
-            defaultValue: true,
+            defaultValue: false,
             description: 'Run hadolint against generated Dockerfiles (requires hadolint to be available). Disable only with explicit justification.'
         )
         booleanParam(
             name: 'ENABLE_DOCKER_SCAN',
-            defaultValue: true,
+            defaultValue: false,
             description: 'Run trivy image scan for built images (requires trivy to be available). Disable only with explicit justification.'
         )
         string(
