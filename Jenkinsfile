@@ -355,7 +355,10 @@ pipeline {
                     // Intentional asymmetry: partial failure → UNSTABLE (some images built),
                     // total failure → ERROR (no images to test or push).
                     if (buildResult.successful.size() == 0) {
-                        error('No images were built successfully. Aborting pipeline.')
+                        def failedImages = buildResult.failed ?: []
+                        def details = failedImages ? " Failed images: ${failedImages}." : ""
+                        error("No images were built successfully. Aborting pipeline.${details} " +
+                              "Check docker build logs above for root cause (Dockerfile path, base image availability, or build command failures).")
                     }
                     if (buildResult.failed.size() > 0) {
                         unstable("WARNING: Failed to build images: ${buildResult.failed}")
