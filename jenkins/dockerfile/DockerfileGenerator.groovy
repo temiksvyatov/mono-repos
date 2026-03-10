@@ -62,8 +62,11 @@ def generateDockerfiles(imagesToBuild) {
                     def changedForImage = changedVersions[image]
                     echo "DockerfileGenerator: changedVersions[${image}] = ${changedForImage}"
                     if (changedForImage instanceof List && !changedForImage.isEmpty()) {
+                        // Normalize both sources to strings to avoid YAML/JSON numeric coercion issues:
+                        // versions.yaml may return version as int or string, CHANGED_VERSIONS as int or string.
+                        def changedAsStrings = changedForImage.collect { "${it}" }
                         versionsForImage = versionsForImage.findAll { v ->
-                            changedForImage.contains("${v.version}")
+                            changedAsStrings.contains("${v.version}")
                         }
                         echo "DockerfileGenerator: filtered versionsForImage by CHANGED_VERSIONS → ${versionsForImage*.version}"
                     }

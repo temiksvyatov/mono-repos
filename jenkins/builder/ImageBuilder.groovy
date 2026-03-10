@@ -62,8 +62,10 @@ def groupImagesByPriority(versionsData, imagesToBuild) {
         echo "ImageBuilder: image='${image}', imageParts=${imageParts}, " +
              "availableVersions=${versionsForImage*.version}, changedForImage=${changedForImage}"
         if (changedForImage instanceof List && !changedForImage.isEmpty()) {
+            // Normalize to strings to be robust against YAML int/string coercion and JSON parsing.
+            def changedAsStrings = changedForImage.collect { "${it}" }
             versionsForImage = versionsForImage.findAll { v ->
-                changedForImage.contains("${v.version}")
+                changedAsStrings.contains("${v.version}")
             }
             echo "ImageBuilder: filtered versionsForImage by CHANGED_VERSIONS → ${versionsForImage*.version}"
         }
