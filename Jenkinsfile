@@ -299,7 +299,10 @@ pipeline {
                                 '''
                             }
                             def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
+                            echo "Generate Dockerfiles debug: IMAGES_TO_BUILD_LIST=${imagesToBuild}"
+                            echo "Generate Dockerfiles debug: CHANGED_VERSIONS=${env.CHANGED_VERSIONS}"
                             def generationResult = dockerfileGenerator.generateDockerfiles(imagesToBuild)
+                            echo "Generate Dockerfiles debug: generationResult.successful=${generationResult.successful}, failed=${generationResult.failed}"
                             if (generationResult.successful.size() == 0) {
                                 error('No Dockerfiles were generated successfully. Aborting pipeline.')
                             }
@@ -330,18 +333,24 @@ pipeline {
                     def startTime = System.currentTimeMillis()
                     echo '=== Building Images ==='
                     dockerfileGenerator.verifyDockerfileChecksums()
+                    echo "Build Images debug: raw env.VERSIONS_DATA length=${env.VERSIONS_DATA?.size()}, " +
+                         "raw env.CHANGED_VERSIONS=${env.CHANGED_VERSIONS}"
                     def versionsData = readJSON text: env.VERSIONS_DATA
                     def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
                     def generationResult = PIPELINE_REPORT.generation
+                    echo "Build Images debug: imagesToBuild from validation: ${imagesToBuild}"
+                    echo "Build Images debug: Dockerfiles generated successfully for: ${generationResult?.successful}"
                     def imagesToBuildFiltered = imagesToBuild.findAll {
                         generationResult.successful.contains(it)
                     }
+                    echo "Build Images debug: images scheduled for build after filtering: ${imagesToBuildFiltered}"
                     if (!imagesToBuild.isEmpty()
                         && (generationResult?.successful instanceof List)
                         && !generationResult.successful.isEmpty()
                         && imagesToBuildFiltered.isEmpty()) {
                         error("Internal mismatch: no images scheduled for build after filtering by generation results. " +
-                              "imagesToBuild=${imagesToBuild}, generated=${generationResult.successful}")
+                              "imagesToBuild=${imagesToBuild}, generated=${generationResult.successful}, " +
+                              "CHANGED_VERSIONS=${env.CHANGED_VERSIONS}")
                     }
                     def buildResult = imageBuilder.buildImages(versionsData, imagesToBuildFiltered, params)
                     PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'build', [

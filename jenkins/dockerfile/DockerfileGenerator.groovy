@@ -26,6 +26,9 @@ def generateDockerfiles(imagesToBuild) {
         }
     }
 
+    echo "DockerfileGenerator: starting generation for images=${imagesToBuild}"
+    echo "DockerfileGenerator: raw CHANGED_VERSIONS from env=${env.CHANGED_VERSIONS}"
+
     imagesToBuild.each { image ->
         def startTime = System.currentTimeMillis()
         def log = ""
@@ -43,24 +46,31 @@ def generateDockerfiles(imagesToBuild) {
                 successful.add(image)
                 echo "✓ Successfully generated Dockerfile for ${image}"
                 def versionsData = readJSON text: env.VERSIONS_DATA
+                echo "DockerfileGenerator: resolved versionsData keys=${versionsData?.keySet()}"
                 def imageParts = image.split('/')
                 def imageData = versionsData
                 for (part in imageParts) {
                     imageData = imageData[part]
                 }
+                echo "DockerfileGenerator: image='${image}', imageParts=${imageParts}, " +
+                     "hasVersionsField=${(imageData instanceof Map && imageData.versions)}"
                 if (imageData instanceof Map && imageData.versions) {
                     // Список всех версий из versions.yaml для этого образа.
                     def versionsForImage = imageData.versions
                     // Если есть CHANGED_VERSIONS[image], ограничиваемся только этими версиями,
                     // чтобы генерация Python и запись checksum'ов шли по одному и тому же перечню.
                     def changedForImage = changedVersions[image]
+                    echo "DockerfileGenerator: changedVersions[${image}] = ${changedForImage}"
                     if (changedForImage instanceof List && !changedForImage.isEmpty()) {
                         versionsForImage = versionsForImage.findAll { v ->
                             changedForImage.contains("${v.version}")
                         }
+                        echo "DockerfileGenerator: filtered versionsForImage by CHANGED_VERSIONS → ${versionsForImage*.version}"
                     }
+                    echo "DockerfileGenerator: iterating versionsForImage=${versionsForImage*.version} for image=${image}"
                     versionsForImage.each { version ->
                         def dockerfilePath = "generated/${image}/${version.version}/Dockerfile"
+                        echo "DockerfileGenerator: expecting Dockerfile at ${dockerfilePath}"
                         if (fileExists(dockerfilePath)) {
                             // Record checksum for integrity verification in Build stage.
                             // Dockerfile contents are intentionally NOT echoed to the console
@@ -97,6 +107,9 @@ def generateDockerfiles(imagesToBuild) {
         echo "WARNING: Dockerfiles were generated for images ${successful}, but no checksums were recorded. " +
              "Verify that versions.yaml structure matches DockerfileGenerator expectations."
     }
+
+    echo "DockerfileGenerator: generation finished. successful=${successful}, failed=${failed}, " +
+         "checksumsRecorded=${checksums.keySet().size()}"
 
     return [
         successful: successful,

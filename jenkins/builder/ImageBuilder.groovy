@@ -14,7 +14,11 @@ def buildImages(Map versionsData, List imagesToBuild, params) {
     def logs = new java.util.concurrent.ConcurrentHashMap()
     def imageDurations = new java.util.concurrent.ConcurrentHashMap()
 
+    echo "ImageBuilder: starting buildImages for images=${imagesToBuild}"
+    echo "ImageBuilder: available top-level keys in versionsData=${versionsData?.keySet()}"
+
     def imagesByPriority = groupImagesByPriority(versionsData, imagesToBuild)
+    echo "ImageBuilder: grouped images by priority → priorities=${imagesByPriority.keySet().sort()}"
 
     docker.withRegistry(params.REGISTRY_URL, params.REGISTRY_CREDENTIALS) {
         executeBuildPlan(imagesByPriority, params, successful, failed, logs, imageDurations)
@@ -41,6 +45,9 @@ def groupImagesByPriority(versionsData, imagesToBuild) {
         }
     }
 
+    echo "ImageBuilder: raw CHANGED_VERSIONS from env=${env.CHANGED_VERSIONS}"
+    echo "ImageBuilder: parsed changedVersions map=${changedVersions}"
+
     imagesToBuild.each { image ->
         def imageParts = image.split('/')
         def imageData = versionsData
@@ -52,10 +59,13 @@ def groupImagesByPriority(versionsData, imagesToBuild) {
         }
         def versionsForImage = imageData.versions
         def changedForImage = changedVersions[image]
+        echo "ImageBuilder: image='${image}', imageParts=${imageParts}, " +
+             "availableVersions=${versionsForImage*.version}, changedForImage=${changedForImage}"
         if (changedForImage instanceof List && !changedForImage.isEmpty()) {
             versionsForImage = versionsForImage.findAll { v ->
                 changedForImage.contains("${v.version}")
             }
+            echo "ImageBuilder: filtered versionsForImage by CHANGED_VERSIONS → ${versionsForImage*.version}"
         }
         versionsForImage.each { version ->
             def priority = version.priority ?: 1000
@@ -78,6 +88,7 @@ def executeBuildPlan(imagesByPriority, params, successful, failed, logs, imageDu
     def sortedPriorities = imagesByPriority.keySet().sort()
     sortedPriorities.each { priority ->
         def imagesInPriority = imagesByPriority[priority]
+        echo "ImageBuilder: executing priority group=${priority}, images=${imagesInPriority.collect { it.image + ':' + it.version.version }}"
         if (params.BUILD_MODE == 'parallel') {
             def parallelBuilds = [:]
             imagesInPriority.each { item ->
