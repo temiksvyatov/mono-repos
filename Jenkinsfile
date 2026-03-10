@@ -333,15 +333,19 @@ pipeline {
                     def versionsData = readJSON text: env.VERSIONS_DATA
                     def imagesToBuild = readJSON text: env.IMAGES_TO_BUILD_LIST
                     def generationResult = PIPELINE_REPORT.generation
+                    echo "Build Images debug: imagesToBuild from validation: ${imagesToBuild}"
+                    echo "Build Images debug: Dockerfiles generated successfully for: ${generationResult?.successful}"
                     def imagesToBuildFiltered = imagesToBuild.findAll {
                         generationResult.successful.contains(it)
                     }
+                    echo "Build Images debug: images scheduled for build after filtering: ${imagesToBuildFiltered}"
                     if (!imagesToBuild.isEmpty()
                         && (generationResult?.successful instanceof List)
                         && !generationResult.successful.isEmpty()
                         && imagesToBuildFiltered.isEmpty()) {
                         error("Internal mismatch: no images scheduled for build after filtering by generation results. " +
-                              "imagesToBuild=${imagesToBuild}, generated=${generationResult.successful}")
+                              "imagesToBuild=${imagesToBuild}, generated=${generationResult.successful}, " +
+                              "CHANGED_VERSIONS=${env.CHANGED_VERSIONS}")
                     }
                     def buildResult = imageBuilder.buildImages(versionsData, imagesToBuildFiltered, params)
                     PIPELINE_REPORT = reportModel.updateAndSync(PIPELINE_REPORT, 'build', [
@@ -355,10 +359,7 @@ pipeline {
                     // Intentional asymmetry: partial failure → UNSTABLE (some images built),
                     // total failure → ERROR (no images to test or push).
                     if (buildResult.successful.size() == 0) {
-                        def failedImages = buildResult.failed ?: []
-                        def details = failedImages ? " Failed images: ${failedImages}." : ""
-                        error("No images were built successfully. Aborting pipeline.${details} " +
-                              "Check docker build logs above for root cause (Dockerfile path, base image availability, or build command failures).")
+                        error('No images were built successfully. Aborting pipeline.')
                     }
                     if (buildResult.failed.size() > 0) {
                         unstable("WARNING: Failed to build images: ${buildResult.failed}")
