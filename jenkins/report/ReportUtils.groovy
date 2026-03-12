@@ -42,7 +42,7 @@ def buildSuccessMessage(pipelineReport, buildUrl) {
     def successfulImages = collectSuccessfulImages(pipelineReport)
     def successCount = (successfulImages ?: []).size()
 
-    return "✅ Pipeline Succeeded! All images rebuilt successfully (${successCount}). 📄 Full report: ${buildReportUrl(buildUrl)}"
+    return "✅ Pipeline Succeeded! All images rebuilt successfully (${successCount}).\n📄 Full report: ${buildReportUrl(buildUrl)}\n"
 }
 
 def buildUnstableMessage(pipelineReport, buildUrl) {
@@ -54,7 +54,7 @@ def buildUnstableMessage(pipelineReport, buildUrl) {
     def failedCount = (failedLines ?: []).size()
 
     if (failedCount == 0) {
-        return "⚠️ Pipeline Unstable! No failed rebuilds detected. 📄 Full report: ${buildReportUrl(buildUrl)}"
+        return "⚠️ Pipeline Unstable! No failed rebuilds detected.\n📄 Full report: ${buildReportUrl(buildUrl)}\n"
     }
 
     // Mixed success + failure: show only failures (per-image details).
@@ -62,11 +62,12 @@ def buildUnstableMessage(pipelineReport, buildUrl) {
         def failedPart = failedLines.collect { "  - ${it}" }.join('\n')
         return """⚠️ Pipeline Unstable! Failed rebuilds (${failedCount}):
 ${failedPart}
-📄 Full report: ${buildReportUrl(buildUrl)}"""
+📄 Full report: ${buildReportUrl(buildUrl)}
+"""
     }
 
     // All failed: single-line summary without enumerating images.
-    return "❌ Pipeline Failed! All rebuilds failed (${failedCount}). 📄 Full report: ${buildReportUrl(buildUrl)}"
+    return "❌ Pipeline Failed! All rebuilds failed (${failedCount}).\n📄 Full report: ${buildReportUrl(buildUrl)}\n"
 }
 
 def buildFailureMessage(pipelineReport, buildUrl) {
@@ -76,11 +77,11 @@ def buildFailureMessage(pipelineReport, buildUrl) {
     def failedCount = (failedLines ?: []).size()
 
     if (failedCount == 0) {
-        return "❌ Pipeline Failed! No failure details available. 📄 Full report: ${buildReportUrl(buildUrl)}"
+        return "❌ Pipeline Failed! No failure details available.\n📄 Full report: ${buildReportUrl(buildUrl)}\n"
     }
 
     // Failure: keep single-line summary (requirement: all failures → one line).
-    return "❌ Pipeline Failed! Failed rebuilds (${failedCount}). 📄 Full report: ${buildReportUrl(buildUrl)}"
+    return "❌ Pipeline Failed! Failed rebuilds (${failedCount}).\n📄 Full report: ${buildReportUrl(buildUrl)}\n"
 }
 
 return this
