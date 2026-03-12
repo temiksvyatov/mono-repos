@@ -27,76 +27,60 @@ def collectSuccessfulImages(pipelineReport) {
     return (pipelineReport.push?.successful ?: [])
 }
 
+def buildReportUrl(buildUrl) {
+    return "${buildUrl}artifact/report.html"
+}
+
+def buildFailedDetailsLines(failureInfo) {
+    return (failureInfo.failedImages ?: []).collect { image ->
+        def stageName = failureInfo.failureDetails[image] ?: 'Unknown stage'
+        "${image} (Failed at: ${stageName})"
+    }
+}
+
 def buildSuccessMessage(pipelineReport, buildUrl) {
     def successfulImages = collectSuccessfulImages(pipelineReport)
-    def failureInfo = collectStageFailures(pipelineReport)
+    def successCount = (successfulImages ?: []).size()
 
-    def successfulPart = successfulImages.collect { "  - ${it}" }.join('\n')
-    if (!successfulPart) {
-        successfulPart = 'None'
-    }
-
-    def failedPart = failureInfo.failedImages.collect { image ->
-        "  - ${image} (Failed at: ${failureInfo.failureDetails[image]})"
-    }.join('\n')
-    if (!failedPart) {
-        failedPart = 'None'
-    }
-
-    return """✅ Pipeline Succeeded!
-✔️ Successfully built and pushed images:
-${successfulPart}
-
-❌ Failed images:
-${failedPart}
-
-📄 Full report: ${buildUrl}artifact/report.html
-"""
+    return "✅ Pipeline Succeeded! All images rebuilt successfully (${successCount}). 📄 Full report: ${buildReportUrl(buildUrl)}"
 }
 
 def buildUnstableMessage(pipelineReport, buildUrl) {
     def successfulImages = collectSuccessfulImages(pipelineReport)
     def failureInfo = collectStageFailures(pipelineReport)
 
-    def successfulPart = successfulImages.collect { "  - ${it}" }.join('\n')
-    if (!successfulPart) {
-        successfulPart = 'None'
+    def successCount = (successfulImages ?: []).size()
+    def failedLines = buildFailedDetailsLines(failureInfo)
+    def failedCount = (failedLines ?: []).size()
+
+    if (failedCount == 0) {
+        return "⚠️ Pipeline Unstable! No failed rebuilds detected. 📄 Full report: ${buildReportUrl(buildUrl)}"
     }
 
-    def failedPart = failureInfo.failedImages.collect { image ->
-        "  - ${image} (Failed at: ${failureInfo.failureDetails[image]})"
-    }.join('\n')
-    if (!failedPart) {
-        failedPart = 'None'
-    }
-
-    return """⚠️ Pipeline Unstable!
-✔️ Successfully built and pushed images:
-${successfulPart}
-
-❌ Failed images:
+    // Mixed success + failure: show only failures (per-image details).
+    if (successCount > 0) {
+        def failedPart = failedLines.collect { "  - ${it}" }.join('\n')
+        return """⚠️ Pipeline Unstable! Failed rebuilds (${failedCount}):
 ${failedPart}
+📄 Full report: ${buildReportUrl(buildUrl)}"""
+    }
 
-📄 Full report: ${buildUrl}artifact/report.html
-"""
+    // All failed: single-line summary without enumerating images.
+    return "❌ Pipeline Failed! All rebuilds failed (${failedCount}). 📄 Full report: ${buildReportUrl(buildUrl)}"
 }
 
 def buildFailureMessage(pipelineReport, buildUrl) {
     def failureInfo = collectStageFailures(pipelineReport)
 
-    def failedPart = failureInfo.failedImages.collect { image ->
-        "  - ${image} (Failed at: ${failureInfo.failureDetails[image]})"
-    }.join('\n')
-    if (!failedPart) {
-        failedPart = 'No failure details available'
+    def failedLines = buildFailedDetailsLines(failureInfo)
+    def failedCount = (failedLines ?: []).size()
+
+    if (failedCount == 0) {
+        return "❌ Pipeline Failed! No failure details available. 📄 Full report: ${buildReportUrl(buildUrl)}"
     }
 
-    return """❌ Pipeline Failed!
-✖️ Failed images:
-${failedPart}
-
-📄 Full report: ${buildUrl}artifact/report.html
-"""
+    // Failure: keep single-line summary (requirement: all failures → one line).
+    return "❌ Pipeline Failed! Failed rebuilds (${failedCount}). 📄 Full report: ${buildReportUrl(buildUrl)}"
 }
 
 return this
