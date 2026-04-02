@@ -1,0 +1,362 @@
+---
+description: >
+  Анализ сценария selective rebuild в pipeline пересборки базовых Docker-образов.
+  Фокус: цепочка git diff → getChangedFiles → getChangedImages/getChangedVersions →
+  determineImagesToBuild → groupImagesByPriority → generate_dockerfile.py → buildSingleImage.
+  Применять при любом вопросе об изменениях в images/, versions.yaml, Utils.groovy,
+  ImageBuilder.groovy, generate_dockerfile.py.
+globs:
+  - "jenkins/utils/Utils.groovy"
+  - "jenkins/builder/ImageBuilder.groovy"
+  - "jenkins/dockerfile/generate_dockerfile.py"
+  - "jenkins/dockerfile/DockerfileGenerator.groovy"
+  - "jenkins/validation/Validation.groovy"
+  - "Jenkinsfile"
+  - "versions.yaml"
+  - "images/**/config.yaml"
+  - "images/**/Dockerfile.j2"
+alwaysApply: false
+---
+
+# АНАЛИЗ: SELECTIVE DOCKER IMAGE REBUILD — ЦЕПОЧКА ОБНАРУЖЕНИЯ ИЗМЕНЕНИЙ
+# Severity: CRITICAL | HIGH | MEDIUM | LOW
+# Формат: [SEVERITY] <Файл>:<строка>: <находка> — <рекомендация>
+
+Ты — senior DevOps engineer, специализирующийся на Jenkins Pipeline, git internals
+и Python build tooling. Твоя задача: найти все дефекты в сценарии selective rebuild,
+где после пуша пересобираются только образы с изменёнными файлами.
+
+Ожидаемый flow:
+  git push
+    → Jenkins trigger
+      → Utils.getChangedFiles()        [git diff]
+        → Utils.getChangedImages()     [файл → имя образа]
+        → Utils.getChangedVersions()   [файл → версия образа]
+          → Utils.determineImagesToBuild()
+            → env.CHANGED_VERSIONS сериализуется в JSON
+              → generate_dockerfile.py читает CHANGED_VERSIONS
+                → ImageBuilder.groupImagesByPriority() фильтрует версии
+                  → buildSingleImage() собирает только нужные образы
+
+Анализируй каждый узел цепочки последовательно. Не пропускай ни одного.
+
+---
+
+## ШАГ 1 — git diff: Utils.groovy::getChangedFiles()
+
+Проверь дословно:
+```groovy
+sh(script: 'git diff --name-only HEAD~1 HEAD || echo ""', returnStdout: true)
+```
+
+Конкретные проблемы для проверки:
+
+- **HEAD~1 на первом коммите ветки**: если в ветке только один коммит,
+  `HEAD~1` не существует. `git diff` завершится с ошибкой, `|| echo ""`
+  вернёт пустую строку → `changedFiles = []` → `changedImages = []` →
+  `determineImagesToBuild` вернёт `'all'` при `IMAGES_TO_BUILD=all`,
+  то есть пересоберутся ВСЕ образы вместо нужных. Проверь, есть ли защита.
+
+- **Shallow clone (`--depth=1`)**: стандартная конфигурация Jenkins git plugin.
+  `HEAD~1` недоступен при shallow clone. `git diff HEAD~1` → fatal error →
+  пустой список. Grep: есть ли `git fetch --unshallow` или `clone depth` в конфиге.
+
+- **Merge commit**: при merge через PR `HEAD~1` — это merge commit,
+  diff покажет только файлы изменённые при merge, а не всю feature-ветку.
+  Правильный вариант: `git diff --name-only origin/main...HEAD` или
+  `git diff --name-only $GIT_PREVIOUS_COMMIT $GIT_COMMIT`.
+
+- **Jenkins env переменные**: проверь, не используется ли
+  `$GIT_PREVIOUS_SUCCESSFUL_COMMIT` или `$CI_COMMIT_BEFORE_SHA` вместо `HEAD~1`.
+  Если переменная не задана (первый build), diff будет некорректным.
+
+- **returnStdout + trim()**: если `git diff` вернул только `\n`,
+  после `.trim()` получим `""`, `split('\n')` вернёт `['']` (массив с одним
+  пустым элементом), а не `[]`. Проверь условие `changes ?`.
+
+---
+
+## ШАГ 2 — маппинг файл→образ: Utils.groovy::getChangedImages()
+
+Разбери логику по каждой ветке условий для структур из **реального репо**:
+
+### Структуры файлов в репо:
+```
+images/alpine/Dockerfile.j2          → parts.length=3, parts[2]=Dockerfile.j2
+images/alpine/config.yaml            → parts.length=3, parts[2]=config.yaml
+images/node/22/config.yaml           → parts.length=4, parts[2]='22' (цифра!)
+images/java/maven/Dockerfile.j2      → parts.length=4, parts[2]='maven' (не цифра)
+images/java/maven/17/config.yaml     → parts.length=5, parts[3]='17' (цифра)
+images/java/maven/17/Dockerfile.j2   → parts.length=5
+images/python/Dockerfile.j2          → parts.length=3
+images/python/build-python.sh        → parts.length=3, parts[2] НЕ Dockerfile.j2/config.yaml
+```
+
+Проверь каждый случай против кода:
+
+**КРИТИЧНО**: `images/node/22/config.yaml`:
+- `parts = ['images','node','22','config.yaml']`, `length=4`
+- Ветка `length==4`: `parts[3]='config.yaml'` ✓, `parts[2]='22'` → `.matches('^\\d+$')` → `true`
+- Код добавляет `parts[1]` = `'node'` (базовый образ)
+- Но `getChangedVersions` для этого файла должен вернуть `{node: ['22']}`
+- Проверь: оба метода вызываются независимо. Если `getChangedImages` вернул `['node']`,
+  а `getChangedVersions` вернул `{node: ['22']}`, то `determineImagesToBuild`
+  вернёт `changedImages = ['node']` (не пустой) и проигнорирует `IMAGES_TO_BUILD`.
+  Но `CHANGED_VERSIONS` при этом будет записан в env. Всё ли корректно?
+
+**КРИТИЧНО**: `images/python/build-python.sh`:
+- `parts[2] = 'build-python.sh'`, не совпадает с `Dockerfile.j2` или `config.yaml`
+- Файл НЕ попадает в `changedImages` и НЕ попадает в `changedVersions`
+- Изменение `build-python.sh` → pipeline не пересберёт python образы
+- Это баг или намеренное поведение? Если баг — нужно добавить `*.sh` в условие.
+
+**КРИТИЧНО**: `images/java/maven/config.yaml`:
+- `parts = ['images','java','maven','config.yaml']`, `length=4`
+- `parts[2]='maven'` → `.matches('^\\d+$')` → `false`
+- Добавляется `"${parts[1]}/${parts[2]}"` = `'java/maven'` ✓
+
+**Проверь**: `images/java/maven/17/config.yaml`:
+- `parts = ['images','java','maven','17','config.yaml']`, `length=5`
+- Ветка `length>=5 && parts[3].matches('^\\d+$')` → `parts[3]='17'` ✓
+- `changedImages.add("${parts[1]}/${parts[2]}")` = `'java/maven'` ✓
+- Параллельно `getChangedVersions` добавит `{'java/maven': ['17']}` ✓
+
+---
+
+## ШАГ 3 — маппинг файл→версия: Utils.groovy::getChangedVersions()
+
+Проверь покрытие тех же структур:
+
+**Ветка 1**: `parts.length >= 4 && parts[3] in [Dockerfile.j2, config.yaml] && parts[2].matches(digit)`:
+- Покрывает: `images/node/22/config.yaml` → `{node: ['22']}` ✓
+- НЕ покрывает: `images/alpine/config.yaml` (length=3) → версия не фиксируется,
+  но alpine в `versions.yaml` имеет `version: 'latest'` — это ожидаемо?
+  При изменении `images/alpine/config.yaml` `changedVersions` будет `{}`,
+  но `changedImages` будет `['alpine']`. В `groupImagesByPriority` для `alpine`:
+  `changedForImage = changedVersions['alpine']` = `null` → условие не сработает →
+  возьмутся ВСЕ версии alpine. Для alpine с одной версией `latest` — ок.
+  Но задокументировано ли это поведение?
+
+**Ветка 2**: `parts.length >= 5 && parts[4] in [...] && parts[3].matches(digit)`:
+- Покрывает: `images/java/maven/17/config.yaml` → `{'java/maven': ['17']}` ✓
+
+**НЕ покрывает**:
+- `common/config.yaml` — изменение базового конфига НЕ триггерит пересборку
+  ни одного образа (не начинается с `images/`). Это архитектурное решение?
+  Задокументировано? Если `common/config.yaml` изменился — нужно пересобрать всё.
+- `versions.yaml` — аналогично: изменение версии в `versions.yaml`
+  НЕ попадает в `changedImages`. Если поменяли `base_image` для `alpine` —
+  пересборки не будет. Это критический пробел.
+- `common/files/pip.conf` — изменение pip.conf не триггерит пересборку python образов.
+- `common/templates/Dockerfile.common.j2` — изменение базового шаблона
+  не триггерит пересборку образов, использующих его.
+- `images/python/build-python.sh` — см. ШАГ 2.
+
+---
+
+## ШАГ 4 — determineImagesToBuild(): логика приоритетов
+
+```groovy
+if (changedImages.size() > 0) {
+    return changedImages
+}
+```
+
+Проверь:
+- Если `changedImages` не пуст, `IMAGES_TO_BUILD` параметр полностью игнорируется.
+  Это ожидаемо? Что если оператор задал `IMAGES_TO_BUILD=alpine` вручную,
+  но в коммите были изменения в `java/maven`?
+
+- Функция возвращает `changedImages`, но НЕ фильтрует их против `versions.yaml`.
+  Если `changedImages` содержит образ, которого нет в `versions.yaml` —
+  последующий код сломается. Фильтрация происходит позже в Jenkinsfile,
+  но к этому моменту уже может быть записан некорректный `env.IMAGES_TO_BUILD_LIST`.
+
+---
+
+## ШАГ 5 — groupImagesByPriority(): фильтрация версий
+
+```groovy
+def changedForImage = changedVersions[image]
+if (changedForImage instanceof List && !changedForImage.isEmpty()) {
+    versionsForImage = versionsForImage.findAll { v ->
+        changedForImage.contains("${v.version}")
+    }
+}
+```
+
+Проверь:
+- **Тип version в versions.yaml**: в `versions.yaml` версии quoted (`'17'`, `'22'`),
+  но в Groovy `readYaml` может вернуть Integer для `version: 17` (без кавычек).
+  `changedForImage.contains("17")` vs `changedForImage.contains(17)` — не совпадёт.
+  Проверь типы: `"${v.version}"` даст строку, но если `changedVersions['node']`
+  содержит `['22']` (строки из `git diff`), а `v.version` — Integer `22`,
+  то `"${v.version}"` = `"22"` и `contains("22")` = `true` ✓.
+  Но если `changedVersions` содержит Integer (unlikely, т.к. из split('\n')) —
+  несовпадение. Низкий риск, но проверь.
+
+- **changedVersions читается из env.CHANGED_VERSIONS**: сериализуется как JSON в
+  Jenkinsfile, десериализуется в `groupImagesByPriority`. Проверь:
+  JSON `{"node":["22"]}` → `readJSON` → `changedVersions["node"] = ["22"]`.
+  Тип элементов после `readJSON` — String. `v.version` из `readYaml` для
+  `version: '22'` — String. `contains("22")` ✓. Для `version: 22` (без кавычек) —
+  Integer. `"${22}"` = `"22"`, `contains("22")` на List<String> ✓.
+  Риск минимален, но версии в `versions.yaml` должны быть quoted — зафикси это.
+
+- **python версии**: `version: '310'`, `python_full_version: '3.10.11'`.
+  Если изменён `images/python/310/config.yaml`:
+  `getChangedVersions` → `{python: ['310']}`.
+  `groupImagesByPriority` → `changedForImage = ['310']`.
+  `v.version = '310'` → `contains('310')` ✓.
+  Но такой директории в репо нет (нет `images/python/310/`).
+  Изменения python образов происходят только через `images/python/Dockerfile.j2`
+  или `images/python/config.yaml` — это length=3, попадает в `changedImages`
+  как `'python'`, но НЕ в `changedVersions`. Значит, все python версии
+  будут пересобраны при любом изменении в `images/python/`. Ожидаемо?
+
+---
+
+## ШАГ 6 — generate_dockerfile.py: чтение CHANGED_VERSIONS
+
+```python
+changed_versions_raw = os.environ.get("CHANGED_VERSIONS")
+allowed_versions = changed_versions.get(image_name)
+```
+
+Проверь:
+- `image_name` передаётся как аргумент: `'java/maven'`.
+  `changed_versions.get('java/maven')` — корректно, если ключ в JSON именно `'java/maven'`.
+  Убедись, что `getChangedVersions` в Utils.groovy формирует ключ `"${parts[1]}/${parts[2]}"`
+  = `"java/maven"` — совпадает ✓.
+
+- Если `CHANGED_VERSIONS = {}` (пустой объект — например, изменился только `versions.yaml`):
+  `allowed_versions = None` → условие `isinstance(allowed_versions, list)` = `False` →
+  генерируются ВСЕ версии образа. Это корректный fallback? Задокументировано?
+
+- Скрипт вызывается для каждого образа отдельно: `generate_dockerfile.py 'java/maven'`.
+  Если один образ упадёт — остальные продолжат генерацию (цикл в `DockerfileGenerator.groovy`
+  через `returnStatus: true`). Это корректное поведение.
+
+---
+
+## ШАГ 7 — versions.yaml vs getChangedImages(): критический пробел
+
+Текущий код НЕ отслеживает изменения в `versions.yaml`.
+
+Сценарий:
+1. Разработчик меняет `base_image` для `alpine` в `versions.yaml`
+2. `getChangedFiles` вернёт `['versions.yaml']`
+3. `getChangedImages(['versions.yaml'])` — файл не начинается с `images/` → вернёт `[]`
+4. `getChangedVersions(['versions.yaml'])` → вернёт `{}`
+5. `determineImagesToBuild`: `changedImages.size() == 0`, `IMAGES_TO_BUILD == 'all'` →
+   вернёт ВСЕ образы → пересоберётся всё (случайно корректно для `all`).
+6. Но если `IMAGES_TO_BUILD != 'all'` — не пересберётся ничего из изменённого.
+
+**Отдельный критический сценарий**: меняют только `versions.yaml` (новая версия node 24):
+- `changedImages = []` → `IMAGES_TO_BUILD='all'` → пересоберётся всё.
+- Если оператор запустил с `IMAGES_TO_BUILD='node'` и поменял только versions.yaml —
+  node пересоберётся (т.к. changedImages пуст, используется параметр).
+- Это случайно работает, но не по задуманной логике.
+
+---
+
+## ШАГ 8 — common файлы: слепые зоны
+
+Изменения в следующих файлах НЕ триггерят пересборку образов:
+
+| Файл | Затронутые образы | Текущее поведение |
+|------|-------------------|-------------------|
+| `versions.yaml` | Все | Пересборка всех (если `IMAGES_TO_BUILD=all`) |
+| `common/config.yaml` | Все | ❌ Нет пересборки |
+| `common/templates/Dockerfile.common.j2` | Все | ❌ Нет пересборки |
+| `common/files/pip.conf` | python | ❌ Нет пересборки |
+| `common/files/nginx.conf` | nginx | ❌ Нет пересборки |
+| `common/files/certs/*` | Все | ❌ Нет пересборки |
+| `images/python/build-python.sh` | python | ❌ Нет пересборки |
+
+Проверь: есть ли в `getChangedImages` или `determineImagesToBuild` обработка
+`common/` путей с маппингом на затронутые образы. Если нет — это пробел.
+
+---
+
+## ШАГ 9 — передача данных между стадиями Jenkins
+
+Проверь цепочку env переменных:
+
+```
+Validation stage:
+  env.CHANGED_VERSIONS = writeJSON(changedVersions)  # Map → JSON string
+  env.IMAGES_TO_BUILD_LIST = writeJSON(imagesToBuild)
+
+ImageBuilder.groupImagesByPriority():
+  changedVersions = readJSON text: env.CHANGED_VERSIONS
+
+generate_dockerfile.py:
+  os.environ.get("CHANGED_VERSIONS")  # читает напрямую из env
+```
+
+Проверь:
+- `env.CHANGED_VERSIONS` устанавливается в `Initial Validation` через
+  `writeJSON returnText: true, json: changedVersions`.
+  Формат: `{"node":["22"],"java/maven":["17"]}`.
+  Python читает через `json.loads(changed_versions_raw)` ✓.
+
+- Если `changedVersions = {}` → `env.CHANGED_VERSIONS = "{}"`.
+  Python: `json.loads("{}")` = `{}`, `{}.get('node')` = `None` → генерируются все версии ✓.
+
+- **Размер env переменной**: `CHANGED_VERSIONS` небольшой по размеру — риска нет.
+  Но `env.VERSIONS_DATA` (весь versions.yaml как JSON) читается в каждом
+  `readJSON text: env.VERSIONS_DATA` — убедись что не происходит повторная
+  сериализация при большом `versions.yaml`.
+
+---
+
+## ШАГ 10 — edge cases триггеров
+
+Проверь обработку каждого:
+
+| Сценарий | getChangedFiles результат | Ожидаемое поведение | Фактическое поведение |
+|----------|--------------------------|---------------------|----------------------|
+| Первый коммит в репо | `HEAD~1` не существует | Пересборка всех | ❌ Пустой diff, зависит от `IMAGES_TO_BUILD` |
+| Shallow clone `--depth=1` | `HEAD~1` недоступен | — | ❌ Пустой diff |
+| Изменён только `versions.yaml` | `['versions.yaml']` | Пересборка затронутых | ⚠️ Пересборка всех (если `IMAGES_TO_BUILD=all`) |
+| Изменён `common/config.yaml` | `['common/config.yaml']` | Пересборка всех | ❌ Нет пересборки |
+| Force push | `HEAD~1` может быть неверным | — | ❌ Некорректный diff |
+| Переименование файла | Старый + новый путь в diff | — | ⚠️ Не проверено |
+| Пустой коммит (`--allow-empty`) | `[]` | Нет пересборки | ✓ Корректно |
+
+---
+
+## ФОРМАТ ИТОГОВОГО ОТЧЁТА
+
+После анализа всех шагов выведи:
+
+### НАЙДЕННЫЕ ПРОБЛЕМЫ (по severity)
+
+[CRITICAL] <файл>:<строка>: <описание> — <точное исправление>
+
+### МАТРИЦА ПОКРЫТИЯ СЦЕНАРИЕВ
+
+| Изменённый файл | getChangedImages | getChangedVersions | Пересборка | Корректно? |
+|----------------|------------------|--------------------|------------|------------|
+| images/node/22/config.yaml | node | {node:[22]} | node:22 | ✓/✗ |
+| ... | | | | |
+
+### ПРИОРИТЕТНЫЕ ИСПРАВЛЕНИЯ
+
+Для каждого: что именно изменить, в каком файле, конкретный код до/после.
+
+### БЫСТРАЯ ДИАГНОСТИКА (без изменения кода)
+
+Команды для воспроизведения проблемы локально:
+```bash
+# Проверить что реально возвращает git diff в вашем CI:
+git log --oneline -3
+git diff --name-only HEAD~1 HEAD
+
+# Проверить shallow clone:
+git rev-parse --is-shallow-repository
+
+# Симулировать CHANGED_VERSIONS:
+CHANGED_VERSIONS='{"node":["22"]}' python3 jenkins/dockerfile/generate_dockerfile.py node
+```

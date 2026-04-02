@@ -36,18 +36,22 @@ golang:
     - version: latest
       base_image: docker.nexign.com/golang:1-alpine
 node:
-  image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/node/docker-node{version}-alpine:latest"
-  versions:
-    - version: '16'
-      base_image: docker.nexign.com/node:16-alpine
-    - version: '18'
-      base_image: docker.nexign.com/node:18-alpine
-    - version: '20'
-      base_image: docker.nexign.com/node:20-alpine
-    - version: '22'
-      base_image: docker.nexign.com/node:22-alpine
-      # extra_tags:
-      #   - "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/node/docker-node{version}-alpine:latest"
+  build:
+    image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/build/node/docker-node{version}-alpine:latest"
+    versions:
+      - version: '16'
+        base_image: docker.nexign.com/node:16-alpine
+      - version: '18'
+        base_image: docker.nexign.com/node:18-alpine
+      - version: '20'
+        base_image: docker.nexign.com/node:20-alpine
+      - version: '22'
+        base_image: docker.nexign.com/node:22-alpine
+  runtime:
+    image_tag_format: "docker-mf-middle-dev-local.nexign.com/microservices/infra/runtime/node/docker-node{version}-alpine:latest"
+    versions:
+      - version: '22'
+        base_image: docker.nexign.com/node:22-alpine
 java:
   multi_registry: true
   maven:
