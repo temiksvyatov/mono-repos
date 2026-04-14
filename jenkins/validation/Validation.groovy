@@ -148,10 +148,10 @@ print(f'Syntax validation passed for {len(images)} image(s)')
     def imageArgs = imagesToBuild.collect { "'${it}'" }.join(' ')
     def validationStatus = sh(
         script: """
-            python3 -m venv /tmp/validation-venv
-            . /tmp/validation-venv/bin/activate
-            pip install --quiet -r jenkins/dockerfile/requirements.txt
-            python3 -c "${validationScript.replace('"', '\\"')}" ${imageArgs}
+            set -e
+            rm -rf /tmp/validation-pylibs
+            python3 -m pip install --quiet --disable-pip-version-check --no-cache-dir --target /tmp/validation-pylibs -r jenkins/dockerfile/requirements.txt
+            PYTHONPATH=/tmp/validation-pylibs python3 -c "${validationScript.replace('"', '\\"')}" ${imageArgs}
         """,
         returnStatus: true
     )
